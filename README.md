@@ -47,6 +47,145 @@ Each phase delivers a runnable, independently valuable simulation capability.
 
 🚧 **In Development** - Currently building Phase 1 (Time Engine + Event Sourcing)
 
+## Development Setup
+
+### Python Environment Isolation
+
+This project uses a per-project virtual environment and a pinned Python version.
+
+1. Ensure you have Python 3.12.10 available (pyenv recommended).
+2. Create and activate the virtual environment:
+   - Create: `python -m venv .venv`
+   - Activate (macOS/Linux): `source .venv/bin/activate`
+
+3. Install dependencies:
+   - `pip install -r requirements.txt`
+
+The workspace is configured to use `.venv` automatically in VS Code.
+
+## Quick Start
+
+### 🚀 One-Command Launch
+
+The easiest way to start STRATEGOS:
+
+```bash
+# Using the launcher script (recommended)
+python strategos.py
+
+# Or using the shell wrapper (auto-activates venv)
+./strategos.sh
+
+# Or using Make
+make ui
+```
+
+This will:
+- ✅ Check your Python version and dependencies
+- ✅ Create necessary directories
+- ✅ Start the API server
+- ✅ Open the web UI in your browser
+
+### 📋 Other Launch Options
+
+```bash
+# Run tests first, then start
+python strategos.py --test
+
+# Run tests only
+python strategos.py --test-only
+make test
+
+# Start without opening browser
+python strategos.py --no-browser
+make run
+
+# Use custom port
+python strategos.py --port 3000
+
+# Run CLI demo
+python strategos.py --demo
+make demo
+
+# Run interactive mode
+python strategos.py --interactive
+make interactive
+
+# Skip environment checks
+python strategos.py --skip-checks
+```
+
+## Running the Application
+
+### Option 1: CLI Demo (Quick Test)
+
+Run a simple demonstration of the simulation engine:
+
+```bash
+python run_simulation.py
+```
+
+Or run in interactive mode:
+
+```bash
+python run_simulation.py --interactive
+```
+
+Interactive commands:
+- `start` - Start the simulation
+- `stop` - Stop the simulation
+- `pause` - Pause the simulation
+- `resume` - Resume the simulation
+- `status` - Show simulation status
+- `marker <msg>` - Create a marker event
+- `scale <n>` - Set time scale (e.g., `scale 2.0` for 2x speed)
+- `quit` - Exit
+
+### Option 2: FastAPI Server (Production)
+
+Run the REST API + WebSocket server:
+
+```bash
+python api.py
+```
+
+Or with uvicorn directly:
+
+```bash
+uvicorn api:app --reload --host 0.0.0.0 --port 8000
+```
+
+API will be available at:
+- **API Docs**: http://localhost:8000/docs
+- **Root**: http://localhost:8000/
+- **WebSocket**: ws://localhost:8000/ws/events
+
+### REST API Endpoints
+
+- `GET /` - API information
+- `GET /status` - Get simulation status
+- `POST /start` - Start simulation
+- `POST /stop` - Stop simulation
+- `POST /pause` - Pause simulation
+- `POST /resume` - Resume simulation
+- `POST /time-scale` - Change simulation speed
+- `POST /seek` - Seek to specific time
+- `POST /marker` - Create marker event
+- `GET /events` - Query events from event store
+- `WS /ws/events` - Real-time event stream
+
+### Running Tests
+
+```bash
+pytest tests/
+```
+
+Run with coverage:
+
+```bash
+pytest --cov=core tests/
+```
+
 ## Technology Stack
 
 - Python 3.11+
