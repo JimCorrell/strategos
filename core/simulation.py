@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 from uuid import UUID, uuid4
 
 if TYPE_CHECKING:
-    from spatial import SpatialIndex
+    from spatial import MovementSystem, SpatialIndex
 
 from .checkpoints import Checkpoint, CheckpointStore
 from .event_handlers import EventHandler, EventHandlerRegistry
@@ -42,16 +42,20 @@ class Simulation:
 
         # Phase 2: Spatial subsystems
         self.spatial_index: Optional["SpatialIndex"] = None
+        self.movement_system: Optional["MovementSystem"] = None
 
     async def initialize(self) -> None:
         """Initialize the simulation components."""
         await self.event_store.initialize()
 
         # Phase 2: Initialize spatial subsystems
-        from spatial import SpatialIndex
+        from spatial import MovementSystem, SpatialIndex
 
         self.spatial_index = SpatialIndex()
         await self.spatial_index.initialize(self)
+
+        self.movement_system = MovementSystem(self)
+        await self.movement_system.initialize()
 
         self._initialized = True
 
@@ -84,6 +88,11 @@ class Simulation:
 
         self._running = True
         await self.clock.start()
+
+        # Phase 2b: Start movement system
+        if self.movement_system:
+            await self.movement_system.start()
+
         await self.emit_event(
             EventType.SIMULATION_STARTED,
             {"simulation_id": str(self.simulation_id), "time_scale": self.clock.time_scale},
@@ -101,6 +110,11 @@ class Simulation:
             return
 
         self._running = False
+
+        # Phase 2b: Stop movement system
+        if self.movement_system:
+            await self.movement_system.stop()
+
         await self.clock.stop()
         self.logger.info("simulation.stopped", simulation_id=str(self.simulation_id))
 
@@ -374,3 +388,36 @@ class Simulation:
             Set of entity UUIDs
         """
         return self.state.get_entities_by_type(entity_type)
+
+    async def set_entity_velocity(
+        self,
+        entity_id: UUID,
+        velocity: tuple[float, float, float],
+    ) -> None:
+        """Set velocity for an entity (Phase 2b).
+
+        Args:
+            entity_id: Entity UUID
+            velocity: Velocity vector (vx, vy, vz) in units/second
+        """
+        if self.movement_system is None:
+            self.logger.warning("Cannot set velocity: movement system not initialized")
+            return
+
+        await self.movement_system.set_entity_velocity(entity_id, velocity)
+
+    def get_entity_position(self, entity_id: UUID) -> Optional[tuple[float, float, float]]:
+        """Get current interpolated position of an entity.
+
+        Args:
+            entity_id: Entity UUID
+
+        Returns:
+            Current position tuple (x, y, z), or None if entity not found
+        """
+        if self.movement_system is None:
+            # Fallback to state position if movement system not initialized
+            entity = self.get_entity(entity_id)
+            return entity["position"] if entity else None
+
+        return self.movement_system.get_entity_position(entity_id)

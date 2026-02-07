@@ -12,9 +12,11 @@ from .entities import (
     validate_position,
 )
 from .index import SpatialIndex
+from .movement import MovementSystem
 
 __all__ = [
     "SpatialIndex",
+    "MovementSystem",
     "Position",
     "create_entity_data",
     "validate_position",
