@@ -138,12 +138,22 @@ class EventValidator:
             "types": {"label": str},
         },
         EventType.ENTITY_CREATED: {
-            "required": ["entity_id", "type"],
-            "types": {"entity_id": str, "type": str},
+            "required": ["entity_id", "type", "position"],
+            "types": {
+                "entity_id": str,
+                "type": str,
+                "position": (list, tuple),
+                "max_speed": (int, float),
+            },
         },
         EventType.ENTITY_MOVED: {
-            "required": ["entity_id"],
-            "types": {"entity_id": str},
+            "required": ["entity_id", "position"],
+            "types": {
+                "entity_id": str,
+                "position": (list, tuple),
+                "velocity": (list, tuple),
+                "heading": (int, float),
+            },
         },
         EventType.ENTITY_DESTROYED: {
             "required": ["entity_id"],

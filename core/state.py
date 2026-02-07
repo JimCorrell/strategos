@@ -13,8 +13,9 @@ class WorldState:
     event_count: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    # Phase 1: Minimal state
-    # Later phases will add: entities, economies, etc.
+    # Phase 2: Entity management
+    entities: dict[UUID, dict[str, Any]] = field(default_factory=dict)
+    entity_types: dict[str, set[UUID]] = field(default_factory=dict)
 
     @property
     def current_time(self) -> float:
@@ -28,11 +29,95 @@ class WorldState:
 
     def apply_event(self, event: "Event") -> None:
         """Apply an event to update world state."""
+        from .events import EventType
+
         self.simulation_time = event.simulation_time
         self.event_count += 1
 
-        # Phase 1: Just track that events happened
-        # Later phases: Actually modify entities, resources, etc.
+        # Phase 2: Handle entity events
+        if event.event_type == EventType.ENTITY_CREATED:
+            self._apply_entity_created(event)
+        elif event.event_type == EventType.ENTITY_MOVED:
+            self._apply_entity_moved(event)
+        elif event.event_type == EventType.ENTITY_DESTROYED:
+            self._apply_entity_destroyed(event)
+
+    def _apply_entity_created(self, event: "Event") -> None:
+        """Apply ENTITY_CREATED event to state."""
+        entity_id = UUID(event.data["entity_id"])
+        entity_type = event.data["type"]
+        position = tuple(event.data["position"])
+
+        # Create entity data
+        self.entities[entity_id] = {
+            "entity_id": str(entity_id),
+            "type": entity_type,
+            "position": position,
+            "velocity": (0.0, 0.0, 0.0),
+            "heading": 0.0,
+            "speed": 0.0,
+            "max_speed": event.data.get("max_speed", 10.0),
+            "created_at": event.simulation_time,
+            "destroyed_at": None,
+            "waypoints": [],
+            "metadata": event.data.get("metadata", {}),
+            "last_update_time": event.simulation_time,
+        }
+
+        # Track by type
+        if entity_type not in self.entity_types:
+            self.entity_types[entity_type] = set()
+        self.entity_types[entity_type].add(entity_id)
+
+    def _apply_entity_moved(self, event: "Event") -> None:
+        """Apply ENTITY_MOVED event to state."""
+        entity_id = UUID(event.data["entity_id"])
+
+        if entity_id not in self.entities:
+            return
+
+        entity = self.entities[entity_id]
+
+        # Update position if provided
+        if "position" in event.data:
+            entity["position"] = tuple(event.data["position"])
+
+        # Update velocity if provided
+        if "velocity" in event.data:
+            entity["velocity"] = tuple(event.data["velocity"])
+
+        # Update heading if provided
+        if "heading" in event.data:
+            entity["heading"] = event.data["heading"]
+
+        # Update last update time
+        entity["last_update_time"] = event.simulation_time
+
+    def _apply_entity_destroyed(self, event: "Event") -> None:
+        """Apply ENTITY_DESTROYED event to state."""
+        entity_id = UUID(event.data["entity_id"])
+
+        if entity_id not in self.entities:
+            return
+
+        # Mark as destroyed
+        self.entities[entity_id]["destroyed_at"] = event.simulation_time
+
+        # Remove from type tracking
+        entity_type = self.entities[entity_id]["type"]
+        if entity_type in self.entity_types:
+            self.entity_types[entity_type].discard(entity_id)
+
+        # Remove entity
+        del self.entities[entity_id]
+
+    def get_entity(self, entity_id: UUID) -> Optional[dict[str, Any]]:
+        """Get entity data by ID."""
+        return self.entities.get(entity_id)
+
+    def get_entities_by_type(self, entity_type: str) -> set[UUID]:
+        """Get all entities of a given type."""
+        return self.entity_types.get(entity_type, set()).copy()
 
 
 class SimulationState:

@@ -103,7 +103,11 @@ class TestEventValidator:
         """Valid ENTITY_CREATED event passes validation."""
         event = Event(
             event_type=EventType.ENTITY_CREATED,
-            data={"entity_id": "unit_001", "type": "infantry"},
+            data={
+                "entity_id": "unit_001",
+                "type": "infantry",
+                "position": [0.0, 0.0, 0.0],
+            },
         )
 
         EventValidator.validate(event)

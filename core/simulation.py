@@ -1,7 +1,10 @@
 # core/simulation.py
 
-from typing import Awaitable, Callable, Optional
+from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 from uuid import UUID, uuid4
+
+if TYPE_CHECKING:
+    from spatial import SpatialIndex
 
 from .checkpoints import Checkpoint, CheckpointStore
 from .event_handlers import EventHandler, EventHandlerRegistry
@@ -37,9 +40,19 @@ class Simulation:
         # Event handler registry for type-specific subscriptions
         self._event_handlers = EventHandlerRegistry()
 
+        # Phase 2: Spatial subsystems
+        self.spatial_index: Optional["SpatialIndex"] = None
+
     async def initialize(self) -> None:
         """Initialize the simulation components."""
         await self.event_store.initialize()
+
+        # Phase 2: Initialize spatial subsystems
+        from spatial import SpatialIndex
+
+        self.spatial_index = SpatialIndex()
+        await self.spatial_index.initialize(self)
+
         self._initialized = True
 
         self.logger.info(
@@ -254,6 +267,110 @@ class Simulation:
             "clock_state": self.clock.get_state().value,
             "state": self.clock.get_state().value,  # Alias for clock_state
             "event_count": self.state.event_count,
-            "entity_count": 0,  # Phase 1: No entities yet
+            "entity_count": len(self.state.entities),  # Phase 2: Actual entity count
             "formatted_time": self.clock.format_time(),
         }
+
+    # Phase 2: Entity Lifecycle Methods
+
+    async def create_entity(
+        self,
+        entity_type: str,
+        position: tuple[float, float, float] | list[float],
+        max_speed: float = 10.0,
+        metadata: dict | None = None,
+    ) -> UUID:
+        """Create a new entity in the simulation.
+
+        Args:
+            entity_type: Type of entity (e.g., "infantry", "tank")
+            position: Initial (x, y, z) coordinates
+            max_speed: Maximum speed in meters/second
+            metadata: Optional additional metadata
+
+        Returns:
+            UUID of created entity
+        """
+        entity_id = uuid4()
+
+        # Normalize position to tuple
+        if isinstance(position, list):
+            position = tuple(position)
+        if len(position) == 2:
+            position = (position[0], position[1], 0.0)
+
+        await self.emit_event(
+            EventType.ENTITY_CREATED,
+            {
+                "entity_id": str(entity_id),
+                "type": entity_type,
+                "position": list(position),
+                "max_speed": max_speed,
+                "metadata": metadata or {},
+            },
+        )
+
+        self.logger.info(
+            "entity.created",
+            entity_id=str(entity_id),
+            entity_type=entity_type,
+            position=position,
+        )
+
+        return entity_id
+
+    async def destroy_entity(self, entity_id: UUID) -> None:
+        """Destroy an entity.
+
+        Args:
+            entity_id: UUID of entity to destroy
+        """
+        await self.emit_event(
+            EventType.ENTITY_DESTROYED,
+            {"entity_id": str(entity_id)},
+        )
+
+        self.logger.info("entity.destroyed", entity_id=str(entity_id))
+
+    def query_entities_in_radius(
+        self,
+        center: tuple[float, float, float],
+        radius: float,
+        include_z: bool = False,
+    ) -> list[UUID]:
+        """Find all entities within radius of center point.
+
+        Args:
+            center: Center position (x, y, z)
+            radius: Search radius
+            include_z: If True, use 3D distance; if False, use 2D (x, y only)
+
+        Returns:
+            List of entity UUIDs within radius
+        """
+        if self.spatial_index is None:
+            return []
+
+        return self.spatial_index.query_radius(center, radius, include_z)
+
+    def get_entity(self, entity_id: UUID) -> Optional[dict]:
+        """Get entity data by ID.
+
+        Args:
+            entity_id: Entity UUID
+
+        Returns:
+            Entity data dictionary or None if not found
+        """
+        return self.state.get_entity(entity_id)
+
+    def get_entities_by_type(self, entity_type: str) -> set[UUID]:
+        """Get all entities of a given type.
+
+        Args:
+            entity_type: Entity type to query
+
+        Returns:
+            Set of entity UUIDs
+        """
+        return self.state.get_entities_by_type(entity_type)

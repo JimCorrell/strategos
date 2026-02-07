@@ -18,3 +18,7 @@ python-dotenv==1.0.0
 pytest==7.4.3
 pytest-asyncio==0.21.1
 pytest-cov==4.1.0
+
+# Phase 2: Spatial Layer
+rtree==1.2.0           # R-tree spatial indexing (requires libspatialindex)
+numpy==1.26.2          # Vector math for pathfinding
