@@ -198,6 +198,23 @@ input[type="range"] {
     width: 100%;
 }
 
+.pending-indicator {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 8px;
+    background: var(--warning);
+    color: #000;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
 /* Status Display */
 .status-grid {
     display: grid;

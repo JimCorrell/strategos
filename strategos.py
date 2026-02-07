@@ -125,7 +125,11 @@ def run_tests(verbose=False):
     """Run test suite."""
     print_info("Running tests...")
 
-    cmd = ["pytest", "tests/", "-v"] if verbose else ["pytest", "tests/", "-q"]
+    cmd = (
+        [sys.executable, "-m", "pytest", "tests/", "-v"]
+        if verbose
+        else [sys.executable, "-m", "pytest", "tests/", "-q"]
+    )
 
     try:
         result = subprocess.run(cmd, check=False)
@@ -146,6 +150,8 @@ def start_api_server(host="0.0.0.0", port=8000, reload=True):
     print_info(f"Starting STRATEGOS API server on {host}:{port}...")
 
     cmd = [
+        sys.executable,
+        "-m",
         "uvicorn",
         "api:app",
         "--host",

@@ -7,6 +7,7 @@ class StrategosUI {
         this.statusInterval = null;
         this.apiBase = `http://${window.location.host}`;
         this.wsUrl = `ws://${window.location.host}/ws/events`;
+        this.timeScalePendingApply = false; // Track if user changed slider but hasn't applied
 
         this.init();
     }
@@ -129,9 +130,18 @@ class StrategosUI {
         document.getElementById('sim-running').textContent = status.is_running ? 'Yes' : 'No';
         document.getElementById('sim-events').textContent = status.event_count;
 
-        // Update time scale slider
-        document.getElementById('time-scale').value = status.time_scale;
-        document.getElementById('time-scale-value').textContent = `${status.time_scale}x`;
+        // Update time scale slider ONLY if user hasn't made unapplied changes
+        // This prevents resetting user's selection before they click Apply
+        const slider = document.getElementById('time-scale');
+        const sliderValue = document.getElementById('time-scale-value');
+
+        if (!this.timeScalePendingApply) {
+            slider.value = status.time_scale;
+            sliderValue.textContent = `${status.time_scale}x`;
+        } else {
+            // Show pending indicator when there are unapplied changes
+            document.getElementById('pending-indicator').style.display = 'inline-block';
+        }
     }
 
     startStatusPolling() {
@@ -164,6 +174,15 @@ class StrategosUI {
         const scale = parseFloat(document.getElementById('time-scale').value);
         await this.apiCall('/time-scale', 'POST', { scale });
         this.showSuccess(`Time scale set to ${scale}x`);
+
+        // Clear the pending flag - changes have been applied
+        this.timeScalePendingApply = false;
+
+        // Hide the pending indicator
+        document.getElementById('pending-indicator').style.display = 'none';
+
+        // Immediately update the display to show the new scale
+        document.getElementById('sim-scale').textContent = `${scale}x`;
     }
 
     async createMarker() {
@@ -210,6 +229,8 @@ class StrategosUI {
         // Time scale slider
         document.getElementById('time-scale').addEventListener('input', (e) => {
             document.getElementById('time-scale-value').textContent = `${e.target.value}x`;
+            // Mark that user has changed the slider - prevent status updates from overwriting
+            this.timeScalePendingApply = true;
         });
 
         // Auto-scroll checkbox
