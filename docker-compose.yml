@@ -1,0 +1,17 @@
+services:
+  strategos:
+    build: .
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - strategos-data:/data
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      STRATEGOS_DB_PATH: /data/strategos.db
+      STRATEGOS_CHECKPOINT_DIR: /data/checkpoints
+    restart: unless-stopped
+
+volumes:
+  strategos-data:

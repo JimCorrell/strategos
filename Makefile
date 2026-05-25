@@ -1,4 +1,4 @@
-.PHONY: help install run test demo interactive clean ui cli docs venv
+.PHONY: help install run test demo interactive clean ui cli docs venv deploy deploy-down deploy-logs deploy-shell
 
 # Python binary (use from venv if available)
 PYTHON := .venv/bin/python
@@ -6,17 +6,17 @@ PIP := .venv/bin/pip
 
 # Default target
 help:
-	@echo "🎯 STRATEGOS - Available Commands"
+	@echo "STRATEGOS - Available Commands"
 	@echo ""
-	@echo "  make venv          - Create virtual environment"
-	@echo "  make install       - Install dependencies (creates venv if needed)"
-	@echo "  make run           - Start API server with web UI"
-	@echo "  make test          - Run all tests"
-	@echo "  make demo          - Run CLI demo"
-	@echo "  make interactive   - Run interactive REPL"
-	@echo "  make clean         - Clean generated files"
-	@echo "  make ui            - Start server and open UI"
-	@echo "  make cli           - Run CLI demo (alias for demo)"
+	@echo "  make deploy        - Build and start with Docker (production)"
+	@echo "  make deploy-down   - Stop Docker containers"
+	@echo "  make deploy-logs   - Tail container logs"
+	@echo "  make deploy-shell  - Shell into running container"
+	@echo ""
+	@echo "  make ui            - Start server locally and open browser (dev)"
+	@echo "  make install       - Install Python dependencies"
+	@echo "  make test          - Run test suite"
+	@echo "  make clean         - Remove generated files"
 	@echo ""
 
 # Create virtual environment
@@ -84,6 +84,26 @@ clean:
 # Development mode with auto-reload
 dev: install
 	@$(PYTHON) -m uvicorn api:app --reload --host 0.0.0.0 --port 8000
+
+# ── Docker deployment ────────────────────────────────────────────────────────
+
+deploy:
+	@docker compose up --build -d
+	@echo ""
+	@echo "Strategos running → http://localhost:$${PORT:-8000}"
+	@echo "Logs:  make deploy-logs"
+	@echo "Stop:  make deploy-down"
+
+deploy-down:
+	docker compose down
+
+deploy-logs:
+	docker compose logs -f
+
+deploy-shell:
+	docker compose exec strategos /bin/bash
+
+# ── Development ───────────────────────────────────────────────────────────────
 
 # Run with tests first
 run-test: install

@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+.pytest_cache/
+.coverage
+.DS_Store
+
+# Local databases and checkpoints stay on the host
+*.db
+checkpoints/*.pkl
+
+# Dev/design assets not needed at runtime
+app/
+
+# Secrets — never bake into the image
+.env
