@@ -172,7 +172,7 @@ class SeekRequest(BaseModel):
 @app.get("/")
 async def root():
     """Redirect to web UI."""
-    return RedirectResponse(url="/static/index.html")
+    return RedirectResponse(url="/static/Strategos.html")
 
 
 @app.get("/api")
@@ -467,7 +467,7 @@ async def websocket_events(websocket: WebSocket):
     except Exception as e:
         logger.error("WebSocket error", error=str(e))
     finally:
-        # Note: We don't have an unsubscribe method yet, but we should add one
+        simulation._event_handlers.off_all(send_event)
         logger.info("WebSocket connection closed")
 
 

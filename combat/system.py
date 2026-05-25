@@ -71,9 +71,7 @@ class CombatSystem:
                 frame_start = time.perf_counter()
                 await self._tick()
                 elapsed = time.perf_counter() - frame_start
-                sleep_time = max(0.0, self._frame_time - elapsed)
-                if sleep_time > 0:
-                    await asyncio.sleep(sleep_time)
+                await asyncio.sleep(max(0.0, self._frame_time - elapsed))
         except asyncio.CancelledError:
             raise
         except Exception as e:

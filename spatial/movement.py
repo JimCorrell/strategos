@@ -37,7 +37,7 @@ class MovementSystem:
         self.simulation = simulation
         self.running = False
         self.update_task: Optional[asyncio.Task] = None
-        self.target_fps = 60
+        self.target_fps = 20
         self.frame_time = 1.0 / self.target_fps
 
         # Performance tracking
@@ -94,18 +94,9 @@ class MovementSystem:
                 if time.perf_counter() - self.last_stats_time > 10.0:
                     self._log_performance_stats()
 
-                # Sleep to maintain target FPS
+                # Sleep to maintain target FPS; always yield even if behind schedule
                 sleep_time = max(0, self.frame_time - frame_duration)
-                if sleep_time > 0:
-                    await asyncio.sleep(sleep_time)
-                else:
-                    # Frame took longer than target - log warning
-                    if frame_duration > self.frame_time * 2:
-                        logger.warning(
-                            "Slow frame detected",
-                            frame_duration_ms=frame_duration * 1000,
-                            target_ms=self.frame_time * 1000,
-                        )
+                await asyncio.sleep(sleep_time)
 
         except asyncio.CancelledError:
             logger.debug("Movement update loop cancelled")

@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "strategos-api",
+      "runtimeExecutable": "/Users/jimcorrell/development/strategos/.venv/bin/python",
+      "env": {"STRATEGOS_DB_PATH": "/tmp/strategos_preview.db", "STRATEGOS_CHECKPOINT_DIR": "/tmp/strategos_checkpoints"},
+      "runtimeArgs": ["-m", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"],
+      "port": 8000
+    }
+  ]
+}
