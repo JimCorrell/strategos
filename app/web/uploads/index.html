@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STRATEGOS</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ── LEFT SIDEBAR ─────────────────────────── -->
+  <aside id="sidebar">
+
+    <div id="sidebar-header">
+      <span class="sidebar-title">STRATEGOS</span>
+      <span id="ws-badge" class="ws-badge">DISC</span>
+    </div>
+
+    <!-- Simulation transport -->
+    <div class="sidebar-section">
+      <div class="section-label">Simulation</div>
+      <div class="state-row">
+        <span id="state-badge" class="state-badge stopped">stopped</span>
+        <span id="sim-time" class="sim-time">0.00s</span>
+      </div>
+      <div class="transport-btns">
+        <button id="btn-start"  class="btn btn-success">Start</button>
+        <button id="btn-pause"  class="btn btn-warning">Pause</button>
+        <button id="btn-resume" class="btn btn-info">Resume</button>
+        <button id="btn-stop"   class="btn btn-danger">Stop</button>
+      </div>
+      <div class="sim-stats">
+        Entities:&nbsp;<span id="stat-entities">0</span><br>
+        Events:&nbsp;&nbsp;<span id="stat-events">0</span><br>
+        Scale:&nbsp;&nbsp;&nbsp;<span id="stat-scale">1.0x</span>
+      </div>
+    </div>
+
+    <!-- Time scale -->
+    <div class="sidebar-section">
+      <div class="section-label">
+        Time Scale
+        <span id="pending-badge" class="pending-badge">PENDING</span>
+      </div>
+      <div class="scale-row">
+        <input type="range" id="scale-slider" min="0.1" max="10" step="0.1" value="1.0">
+        <span id="scale-value" class="scale-value">1.0x</span>
+      </div>
+      <button id="btn-apply-scale" class="btn btn-primary btn-sm">Apply</button>
+    </div>
+
+    <!-- Seek -->
+    <div class="sidebar-section">
+      <div class="section-label">Seek</div>
+      <div class="input-row">
+        <input type="number" id="seek-input" placeholder="0.0" step="0.1" min="0">
+        <button id="btn-seek" class="btn btn-sm">Go</button>
+      </div>
+    </div>
+
+    <!-- Markers -->
+    <div class="sidebar-section">
+      <div class="section-label">Markers</div>
+      <div class="input-row">
+        <input type="text" id="marker-input" placeholder="Label…">
+        <button id="btn-add-marker" class="btn btn-sm">Add</button>
+      </div>
+      <ul id="marker-list"></ul>
+    </div>
+
+    <!-- Spawn Entity -->
+    <div class="sidebar-section">
+      <div class="section-label">Spawn Entity</div>
+
+      <div class="spawn-row">
+        <label class="spawn-label">Type</label>
+        <select id="spawn-type" class="spawn-select">
+          <option value="infantry">Infantry</option>
+          <option value="tank">Tank</option>
+          <option value="aircraft">Aircraft</option>
+        </select>
+      </div>
+
+      <div class="spawn-row">
+        <label class="spawn-label">Faction</label>
+        <select id="spawn-faction" class="spawn-select">
+          <option value="blue">Blue</option>
+          <option value="red">Red</option>
+          <option value="neutral">Neutral</option>
+        </select>
+      </div>
+
+      <div class="spawn-row">
+        <label class="spawn-label">X</label>
+        <input type="number" id="spawn-x" class="spawn-coord" value="0" step="10">
+      </div>
+
+      <div class="spawn-row">
+        <label class="spawn-label">Y</label>
+        <input type="number" id="spawn-y" class="spawn-coord" value="0" step="10">
+      </div>
+
+      <div class="spawn-hint" id="spawn-hint">Click map to set position</div>
+
+      <button id="btn-spawn" class="btn btn-primary btn-sm spawn-btn">Spawn</button>
+      <div id="spawn-error" class="spawn-error"></div>
+    </div>
+
+  </aside>
+
+  <!-- ── MAP AREA ──────────────────────────────── -->
+  <main id="map-area">
+
+    <div id="map-toolbar">
+      <button id="btn-zoom-in"  class="btn btn-sm">+</button>
+      <button id="btn-zoom-out" class="btn btn-sm">−</button>
+      <button id="btn-fit"      class="btn btn-sm">Fit</button>
+      <span id="zoom-label" class="zoom-label">100%</span>
+    </div>
+
+    <canvas id="map-canvas"></canvas>
+
+    <div id="event-strip">
+      <div class="strip-header">Events</div>
+      <div id="event-list"></div>
+    </div>
+
+  </main>
+
+  <!-- ── RIGHT PANEL ───────────────────────────── -->
+  <aside id="right-panel">
+
+    <div id="section-entity-list" class="right-section">
+      <div class="right-section-header" id="entity-list-header">Entities (0)</div>
+      <div id="entity-list"></div>
+    </div>
+
+    <div id="section-inspector" class="right-section">
+      <div class="right-section-header">Inspector</div>
+      <div id="inspector-content">
+        <div class="no-selection">No entity selected</div>
+      </div>
+    </div>
+
+    <div id="section-combat" class="right-section">
+      <div class="right-section-header">
+        Combat
+        <span id="engagement-count" class="engagement-count">0 active</span>
+      </div>
+      <div id="engagement-list"></div>
+    </div>
+
+  </aside>
+
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
