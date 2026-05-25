@@ -13,6 +13,8 @@ class ApiClient {
     getStatus()         { return this._fetch('/status'); }
     getEntities()       { return this._fetch('/entities'); }
     getEntity(id)       { return this._fetch(`/entities/${id}`); }
+    getEngagements()    { return this._fetch('/engagements'); }
+    createEntity(body)  { return this._fetch('/entities', { method: 'POST', body }); }
     start()             { return this._fetch('/start',      { method: 'POST' }); }
     stop()              { return this._fetch('/stop',       { method: 'POST' }); }
     pause()             { return this._fetch('/pause',      { method: 'POST' }); }
@@ -59,6 +61,11 @@ class WebSocketClient {
 // ============================================================
 // EntityStore — in-memory entity state + client-side interpolation
 // ============================================================
+const FACTION_COLORS = {
+    blue: '#3b82f6',
+    red:  '#ef4444',
+};
+
 const TYPE_COLORS = {
     infantry: '#22c55e',
     tank:     '#f59e0b',
@@ -68,7 +75,14 @@ const TYPE_COLORS = {
 };
 
 function entityColor(entity) {
+    if (entity.faction && FACTION_COLORS[entity.faction]) return FACTION_COLORS[entity.faction];
     return TYPE_COLORS[entity.type] || '#94a3b8';
+}
+
+function healthColor(pct) {
+    if (pct > 0.6) return '#22c55e';
+    if (pct > 0.3) return '#f59e0b';
+    return '#ef4444';
 }
 
 class EntityStore {
@@ -85,15 +99,23 @@ class EntityStore {
         const d = event.data || {};
         if (!d.entity_id) return;
         this.entities.set(d.entity_id, {
-            entity_id:       d.entity_id,
-            type:            d.type || 'unknown',
-            position:        d.position || [0, 0, 0],
-            velocity:        [0, 0, 0],
-            heading:         0,
-            speed:           0,
-            max_speed:       d.max_speed || 0,
-            metadata:        d.metadata || {},
+            entity_id:        d.entity_id,
+            type:             d.type || 'unknown',
+            position:         d.position || [0, 0, 0],
+            velocity:         [0, 0, 0],
+            heading:          0,
+            speed:            0,
+            max_speed:        d.max_speed || 0,
+            metadata:         d.metadata || {},
             last_update_time: event.simulation_time || 0,
+            // Phase 3: combat
+            faction:          d.faction || 'neutral',
+            health:           d.health ?? 100,
+            max_health:       d.max_health ?? 100,
+            firepower:        d.firepower ?? 0,
+            armor:            d.armor ?? 0,
+            engagement_range: d.engagement_range ?? 0,
+            morale:           d.morale ?? 75,
         });
     }
 
@@ -106,6 +128,12 @@ class EntityStore {
         if (d.heading != null)  e.heading          = d.heading;
         if (d.speed   != null)  e.speed            = d.speed;
         e.last_update_time = d.last_update_time ?? (event.simulation_time || 0);
+    }
+
+    onEntityDamaged(event) {
+        const d = event.data || {};
+        const e = this.entities.get(d.entity_id);
+        if (e) e.health = d.health_after ?? e.health;
     }
 
     onEntityDestroyed(event) {
@@ -146,6 +174,7 @@ class CanvasRenderer {
         this._hasDragged = false;
         this._dragStart  = null;
         this._viewAtDrag = null;
+        this.engagements = [];  // Phase 3: [{entity_a, entity_b, started_at}]
 
         this._setupResize();
         this._setupEvents();
@@ -246,45 +275,143 @@ class CanvasRenderer {
         return Number.isInteger(n) ? n.toString() : n.toFixed(1);
     }
 
+    // ---- Phase 3: engagement lines ----
+    _drawEngagements(ctx) {
+        if (!this.engagements.length) return;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(239,68,68,0.45)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        for (const eng of this.engagements) {
+            const ea = this._store.entities.get(eng.entity_a);
+            const eb = this._store.entities.get(eng.entity_b);
+            if (!ea || !eb) continue;
+            const pa = this._store.getInterpolatedPosition(ea, this.simTime);
+            const pb = this._store.getInterpolatedPosition(eb, this.simTime);
+            const [ax, ay] = this._w2s(pa[0], pa[1]);
+            const [bx, by] = this._w2s(pb[0], pb[1]);
+            ctx.beginPath();
+            ctx.moveTo(ax, ay);
+            ctx.lineTo(bx, by);
+            ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        ctx.restore();
+    }
+
+    // ---- entity shape drawing ----
+    // heading 0 = east on canvas (matches existing heading-line convention)
+    _drawEntityShape(ctx, type, sx, sy, r, heading) {
+        if (type === 'aircraft') {
+            // Chevron that rotates with heading — save/restore preserves the
+            // path in device coords so fill/stroke work after restore
+            ctx.save();
+            ctx.translate(sx, sy);
+            ctx.rotate(-heading);
+            ctx.beginPath();
+            ctx.moveTo(r * 1.8, 0);           // nose
+            ctx.lineTo(-r * 0.5, -r * 1.3);   // left wing tip
+            ctx.lineTo(-r * 0.1, 0);           // center notch
+            ctx.lineTo(-r * 0.5,  r * 1.3);   // right wing tip
+            ctx.closePath();
+            ctx.restore();
+            return;
+        }
+
+        ctx.beginPath();
+        switch (type) {
+            case 'infantry':
+                // Upward-pointing triangle
+                ctx.moveTo(sx,           sy - r * 1.5);
+                ctx.lineTo(sx + r * 1.3, sy + r * 0.9);
+                ctx.lineTo(sx - r * 1.3, sy + r * 0.9);
+                ctx.closePath();
+                break;
+            case 'tank':
+                // Rounded rectangle hull (turret drawn separately)
+                ctx.roundRect(sx - r * 1.4, sy - r * 0.9, r * 2.8, r * 1.8, 2);
+                break;
+            case 'artillery':
+                // Diamond
+                ctx.moveTo(sx,            sy - r * 1.5);
+                ctx.lineTo(sx + r * 1.15, sy);
+                ctx.lineTo(sx,            sy + r * 1.5);
+                ctx.lineTo(sx - r * 1.15, sy);
+                ctx.closePath();
+                break;
+            case 'ship':
+                // Wide flat rectangle
+                ctx.roundRect(sx - r * 2.0, sy - r * 0.65, r * 4.0, r * 1.3, 2);
+                break;
+            default:
+                ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        }
+    }
+
     // ---- entities ----
     _drawEntities(ctx) {
         const showLabels = this._zoom > 0.3;
 
         for (const entity of this._store.entities.values()) {
-            const pos = this._store.getInterpolatedPosition(entity, this.simTime);
+            const pos     = this._store.getInterpolatedPosition(entity, this.simTime);
             const [sx, sy] = this._w2s(pos[0], pos[1]);
             const isSelected = entity.entity_id === this._selectedId;
-            const color = entityColor(entity);
+            const color   = entityColor(entity);
+            const r       = isSelected ? 7 : 5;
+            const heading = entity.heading || 0;
 
+            // Selection ring
             if (isSelected) {
                 ctx.beginPath();
-                ctx.arc(sx, sy, 10, 0, Math.PI * 2);
+                ctx.arc(sx, sy, r + 5, 0, Math.PI * 2);
                 ctx.strokeStyle = 'rgba(255,255,255,0.85)';
                 ctx.lineWidth = 1.5;
                 ctx.stroke();
             }
 
-            ctx.beginPath();
-            ctx.arc(sx, sy, isSelected ? 7 : 5, 0, Math.PI * 2);
+            // Unit shape
+            this._drawEntityShape(ctx, entity.type, sx, sy, r, heading);
             ctx.fillStyle = color;
+            ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+            ctx.lineWidth = 1;
             ctx.fill();
+            ctx.stroke();
 
-            // heading line when moving
-            if (entity.speed > 0.001) {
-                const h = entity.heading || 0;
-                const len = 14;
+            // Tank turret overlay
+            if (entity.type === 'tank') {
+                ctx.beginPath();
+                ctx.arc(sx, sy, r * 0.55, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(0,0,0,0.45)';
+                ctx.fill();
+            }
+
+            // Heading line for ground units (aircraft shape already shows direction)
+            if (entity.speed > 0.001 && entity.type !== 'aircraft') {
                 ctx.beginPath();
                 ctx.moveTo(sx, sy);
-                ctx.lineTo(sx + Math.cos(h) * len, sy - Math.sin(h) * len);
+                ctx.lineTo(sx + Math.cos(heading) * 14, sy - Math.sin(heading) * 14);
                 ctx.strokeStyle = color;
                 ctx.lineWidth = 1.5;
                 ctx.stroke();
             }
 
+            // Health bar
+            const maxHp = entity.max_health || 100;
+            const hp    = entity.health ?? maxHp;
+            const pct   = Math.max(0, Math.min(1, hp / maxHp));
+            const barW  = 14, barH = 3;
+            const barX  = sx - barW / 2;
+            const barY  = sy + r + 6;
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.fillRect(barX, barY, barW, barH);
+            ctx.fillStyle = healthColor(pct);
+            ctx.fillRect(barX, barY, barW * pct, barH);
+
+            // Label
             if (showLabels) {
                 ctx.fillStyle = 'rgba(241,245,249,0.65)';
                 ctx.font = '9px Monaco, monospace';
-                ctx.fillText(entity.entity_id.substring(0, 8), sx + 8, sy - 4);
+                ctx.fillText(entity.entity_id.substring(0, 8), sx + r + 5, sy - 4);
             }
         }
     }
@@ -296,6 +423,7 @@ class CanvasRenderer {
         ctx.fillStyle = '#0a1628';
         ctx.fillRect(0, 0, w, h);
         this._drawGrid(ctx);
+        this._drawEngagements(ctx);
         this._drawEntities(ctx);
     }
 
@@ -393,6 +521,12 @@ class CanvasRenderer {
 
         this._selectedId = bestId;
         if (this.onEntitySelect) this.onEntitySelect(bestId);
+
+        // If click didn't hit an entity, treat it as a spawn position pick
+        if (!bestId && this.onMapClick) {
+            const [wx, wy] = this._s2w(sx, sy);
+            this.onMapClick(wx, wy);
+        }
     }
 }
 
@@ -499,10 +633,12 @@ class RightPanelController {
         this._selectedId = null;
         this.onEntitySelect = null;  // callback(id | null)
         this._el = {
-            header:    document.getElementById('entity-list-header'),
-            list:      document.getElementById('entity-list'),
-            inspector: document.getElementById('inspector-content'),
-            events:    document.getElementById('event-list'),
+            header:          document.getElementById('entity-list-header'),
+            list:            document.getElementById('entity-list'),
+            inspector:       document.getElementById('inspector-content'),
+            events:          document.getElementById('event-list'),
+            engagementCount: document.getElementById('engagement-count'),
+            engagementList:  document.getElementById('engagement-list'),
         };
     }
 
@@ -555,24 +691,52 @@ class RightPanelController {
             this._el.inspector.innerHTML = '<div class="no-selection">No entity selected</div>';
             return;
         }
-        const pos = entity.position || [0, 0, 0];
-        const vel = entity.velocity || [0, 0, 0];
-        const deg = ((entity.heading || 0) * 180 / Math.PI).toFixed(1);
+        const pos   = entity.position || [0, 0, 0];
+        const vel   = entity.velocity || [0, 0, 0];
+        const deg   = ((entity.heading || 0) * 180 / Math.PI).toFixed(1);
+        const maxHp = entity.max_health || 100;
+        const hp    = entity.health ?? maxHp;
+        const pct   = Math.max(0, Math.min(1, hp / maxHp));
+        const hpColor = healthColor(pct);
+
+        const healthBar = `
+            <div class="insp-health">
+                <div class="insp-health-bar" style="width:${(pct*100).toFixed(0)}%;background:${hpColor}"></div>
+            </div>
+            <div class="insp-health-label">${hp.toFixed(0)} / ${maxHp.toFixed(0)}</div>`;
+
         const rows = [
-            ['id',      entity.entity_id.substring(0, 8) + '…'],
-            ['type',    entity.type],
-            ['x',       pos[0].toFixed(2)],
-            ['y',       pos[1].toFixed(2)],
-            ['z',       pos[2].toFixed(2)],
-            ['heading', deg + '°'],
-            ['speed',   (entity.speed || 0).toFixed(2)],
-            ['max_spd', (entity.max_speed || 0).toFixed(2)],
-            ['vel x',   vel[0].toFixed(3)],
-            ['vel y',   vel[1].toFixed(3)],
+            ['id',       entity.entity_id.substring(0, 8) + '…'],
+            ['type',     entity.type],
+            ['faction',  entity.faction || 'neutral'],
+            ['x',        pos[0].toFixed(2)],
+            ['y',        pos[1].toFixed(2)],
+            ['z',        pos[2].toFixed(2)],
+            ['heading',  deg + '°'],
+            ['speed',    (entity.speed || 0).toFixed(2)],
+            ['max_spd',  (entity.max_speed || 0).toFixed(2)],
+            ['vel x',    vel[0].toFixed(3)],
+            ['vel y',    vel[1].toFixed(3)],
+            ['firepower',(entity.firepower || 0).toFixed(1)],
+            ['armor',    (entity.armor || 0).toFixed(1)],
+            ['range',    (entity.engagement_range || 0).toFixed(0)],
+            ['morale',   (entity.morale || 0).toFixed(0)],
         ];
-        this._el.inspector.innerHTML = rows
-            .map(([k, v]) => `<div class="insp-row"><span>${k}</span><span class="insp-val">${v}</span></div>`)
-            .join('');
+        this._el.inspector.innerHTML =
+            healthBar +
+            rows.map(([k, v]) => `<div class="insp-row"><span>${k}</span><span class="insp-val">${v}</span></div>`).join('');
+    }
+
+    // Phase 3: Combat panel
+    updateEngagements(engagements) {
+        const n = engagements.length;
+        if (this._el.engagementCount) this._el.engagementCount.textContent = `${n} active`;
+        if (!this._el.engagementList) return;
+        this._el.engagementList.innerHTML = engagements.map(eng => {
+            const a = eng.entity_a.substring(0, 6);
+            const b = eng.entity_b.substring(0, 6);
+            return `<div class="engagement-row">${a}… ⚔ ${b}…</div>`;
+        }).join('');
     }
 
     appendEvent(event) {
@@ -590,6 +754,56 @@ class RightPanelController {
 }
 
 // ============================================================
+// SpawnController — entity creation sidebar panel
+// ============================================================
+class SpawnController {
+    constructor(api) {
+        this._api = api;
+        this._el = {
+            type:    document.getElementById('spawn-type'),
+            faction: document.getElementById('spawn-faction'),
+            x:       document.getElementById('spawn-x'),
+            y:       document.getElementById('spawn-y'),
+            btn:     document.getElementById('btn-spawn'),
+            error:   document.getElementById('spawn-error'),
+            hint:    document.getElementById('spawn-hint'),
+        };
+        this._el.btn.addEventListener('click', () => this._spawn());
+    }
+
+    // Called by CanvasRenderer when user clicks on empty canvas space
+    setPosition(wx, wy) {
+        this._el.x.value = Math.round(wx);
+        this._el.y.value = Math.round(wy);
+        this._el.hint.textContent = `Position set: (${Math.round(wx)}, ${Math.round(wy)})`;
+        setTimeout(() => { this._el.hint.textContent = 'Click map to set position'; }, 2000);
+    }
+
+    async _spawn() {
+        const type    = this._el.type.value;
+        const faction = this._el.faction.value;
+        const x = parseFloat(this._el.x.value) || 0;
+        const y = parseFloat(this._el.y.value) || 0;
+
+        this._el.error.textContent = '';
+        this._el.btn.disabled = true;
+
+        try {
+            await this._api.createEntity({ type, faction, position: [x, y, 0] });
+            // Nudge default position so next spawn doesn't stack exactly on top
+            this._el.x.value = x + 10;
+        } catch(e) {
+            const msg = e.message || String(e);
+            this._el.error.textContent = msg.includes('400')
+                ? 'Start simulation first'
+                : 'Spawn failed';
+        } finally {
+            this._el.btn.disabled = false;
+        }
+    }
+}
+
+// ============================================================
 // StrategosApp — root singleton, wires everything together
 // ============================================================
 class StrategosApp {
@@ -600,6 +814,7 @@ class StrategosApp {
         this._canvas  = new CanvasRenderer(document.getElementById('map-canvas'), this._store);
         this._sidebar = new SidebarController(this._api);
         this._right   = new RightPanelController(this._store);
+        this._spawn   = new SpawnController(this._api);
         this._zoomEl  = document.getElementById('zoom-label');
     }
 
@@ -612,16 +827,20 @@ class StrategosApp {
             this._canvas.fitToEntities();
         } catch(e) { console.warn('entity snapshot failed:', e); }
 
-        // Initial status
+        // Initial status + engagements
         try {
             const s = await this._api.getStatus();
             this._sidebar.updateStatus(s);
             this._canvas.simTime = s.current_time || 0;
         } catch(e) {}
+        await this._fetchEngagements();
 
         // Cross-wire canvas ↔ right panel selection
         this._canvas.onEntitySelect = (id) => { this._right.selectEntity(id); };
         this._right.onEntitySelect  = (id) => { this._canvas.selectEntity(id); };
+
+        // Canvas click on empty space → set spawn coordinates
+        this._canvas.onMapClick = (wx, wy) => { this._spawn.setPosition(wx, wy); };
 
         // Zoom toolbar
         const updateZoom = (fn) => { fn(); if (this._zoomEl) this._zoomEl.textContent = this._canvas.getZoomPercent() + '%'; };
@@ -635,11 +854,17 @@ class StrategosApp {
 
         this._ws.on('entity.created',   (e) => { this._store.onEntityCreated(e);   this._right.refreshEntityList(); });
         this._ws.on('entity.moved',     (e) => { this._store.onEntityMoved(e); });
+        this._ws.on('entity.damaged',   (e) => { this._store.onEntityDamaged(e); });
         this._ws.on('entity.destroyed', (e) => {
             this._right.deselectEntity(e.data?.entity_id);
             this._store.onEntityDestroyed(e);
             this._right.refreshEntityList();
         });
+        this._ws.on('unit.destroyed',   () => { this._fetchEngagements(); });
+
+        // Phase 3: engagement events → refresh engagement panel + canvas lines
+        this._ws.on('engagement.started', () => this._fetchEngagements());
+        this._ws.on('engagement.ended',   () => this._fetchEngagements());
 
         // Sim lifecycle events → immediate status refresh
         for (const t of ['simulation.started', 'simulation.paused', 'simulation.resumed', 'simulation.stopped', 'time.scaled']) {
@@ -651,8 +876,8 @@ class StrategosApp {
 
         this._ws.connect();
 
-        // Status poll every 2s
-        setInterval(() => this._fetchStatus(), 2000);
+        // Poll status + engagements every 2s
+        setInterval(() => { this._fetchStatus(); this._fetchEngagements(); }, 2000);
 
         // RAF
         this._canvas.start();
@@ -668,6 +893,14 @@ class StrategosApp {
             const s = await this._api.getStatus();
             this._sidebar.updateStatus(s);
             this._canvas.simTime = s.current_time || 0;
+        } catch(e) {}
+    }
+
+    async _fetchEngagements() {
+        try {
+            const list = await this._api.getEngagements();
+            this._canvas.engagements = list;
+            this._right.updateEngagements(list);
         } catch(e) {}
     }
 }

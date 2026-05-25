@@ -28,6 +28,11 @@ class EventType(str, Enum):
     ENTITY_DESTROYED = "entity.destroyed"
     CHECKPOINT_CREATED = "checkpoint.created"
     CHECKPOINT_RESTORED = "checkpoint.restored"
+    # Phase 3: Combat
+    ENGAGEMENT_STARTED = "engagement.started"
+    ENGAGEMENT_ENDED = "engagement.ended"
+    ENTITY_DAMAGED = "entity.damaged"
+    UNIT_DESTROYED = "unit.destroyed"
 
 
 @dataclass(frozen=True)
@@ -158,6 +163,29 @@ class EventValidator:
         EventType.ENTITY_DESTROYED: {
             "required": ["entity_id"],
             "types": {"entity_id": str},
+        },
+        # Phase 3: Combat events
+        EventType.ENGAGEMENT_STARTED: {
+            "required": ["entity_a", "entity_b", "started_at"],
+            "types": {"entity_a": str, "entity_b": str, "started_at": (int, float)},
+        },
+        EventType.ENGAGEMENT_ENDED: {
+            "required": ["entity_a", "entity_b", "ended_at", "reason"],
+            "types": {"entity_a": str, "entity_b": str, "ended_at": (int, float), "reason": str},
+        },
+        EventType.ENTITY_DAMAGED: {
+            "required": ["entity_id", "attacker_id", "damage", "health_before", "health_after"],
+            "types": {
+                "entity_id": str,
+                "attacker_id": str,
+                "damage": (int, float),
+                "health_before": (int, float),
+                "health_after": (int, float),
+            },
+        },
+        EventType.UNIT_DESTROYED: {
+            "required": ["entity_id", "attacker_id"],
+            "types": {"entity_id": str, "attacker_id": str},
         },
     }
 

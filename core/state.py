@@ -17,6 +17,9 @@ class WorldState:
     entities: dict[UUID, dict[str, Any]] = field(default_factory=dict)
     entity_types: dict[str, set[UUID]] = field(default_factory=dict)
 
+    # Phase 3: Active combat engagements, keyed by sorted (UUID, UUID) pair
+    engagements: dict[tuple[UUID, UUID], dict[str, Any]] = field(default_factory=dict)
+
     @property
     def current_time(self) -> float:
         """Alias for simulation_time for compatibility with tests."""
@@ -34,21 +37,40 @@ class WorldState:
         self.simulation_time = event.simulation_time
         self.event_count += 1
 
-        # Phase 2: Handle entity events
         if event.event_type == EventType.ENTITY_CREATED:
             self._apply_entity_created(event)
         elif event.event_type == EventType.ENTITY_MOVED:
             self._apply_entity_moved(event)
         elif event.event_type == EventType.ENTITY_DESTROYED:
             self._apply_entity_destroyed(event)
+        # Phase 3: Combat events
+        elif event.event_type == EventType.ENGAGEMENT_STARTED:
+            self._apply_engagement_started(event)
+        elif event.event_type == EventType.ENGAGEMENT_ENDED:
+            self._apply_engagement_ended(event)
+        elif event.event_type == EventType.ENTITY_DAMAGED:
+            self._apply_entity_damaged(event)
+        elif event.event_type == EventType.UNIT_DESTROYED:
+            self._apply_unit_destroyed(event)
 
     def _apply_entity_created(self, event: "Event") -> None:
         """Apply ENTITY_CREATED event to state."""
+        from combat.attributes import merge_combat_attrs
+
         entity_id = UUID(event.data["entity_id"])
         entity_type = event.data["type"]
         position = tuple(event.data["position"])
 
-        # Create entity data
+        combat = merge_combat_attrs(
+            entity_type,
+            health=event.data.get("health"),
+            max_health=event.data.get("max_health"),
+            firepower=event.data.get("firepower"),
+            armor=event.data.get("armor"),
+            engagement_range=event.data.get("engagement_range"),
+            morale=event.data.get("morale"),
+        )
+
         self.entities[entity_id] = {
             "entity_id": str(entity_id),
             "type": entity_type,
@@ -62,6 +84,14 @@ class WorldState:
             "waypoints": [],
             "metadata": event.data.get("metadata", {}),
             "last_update_time": event.simulation_time,
+            # Phase 3: Combat
+            "faction": event.data.get("faction", "neutral"),
+            "health": combat["health"],
+            "max_health": combat["max_health"],
+            "firepower": combat["firepower"],
+            "armor": combat["armor"],
+            "engagement_range": combat["engagement_range"],
+            "morale": combat["morale"],
         }
 
         # Track by type
@@ -110,6 +140,41 @@ class WorldState:
 
         # Remove entity
         del self.entities[entity_id]
+
+    # Phase 3: Combat event handlers
+
+    def _engagement_key(self, id_a: UUID, id_b: UUID) -> tuple[UUID, UUID]:
+        """Return a canonical (sorted) key for an engagement pair."""
+        return (min(id_a, id_b), max(id_a, id_b))
+
+    def _apply_engagement_started(self, event: "Event") -> None:
+        entity_a = UUID(event.data["entity_a"])
+        entity_b = UUID(event.data["entity_b"])
+        key = self._engagement_key(entity_a, entity_b)
+        self.engagements[key] = {
+            "entity_a": str(entity_a),
+            "entity_b": str(entity_b),
+            "started_at": event.data["started_at"],
+        }
+
+    def _apply_engagement_ended(self, event: "Event") -> None:
+        entity_a = UUID(event.data["entity_a"])
+        entity_b = UUID(event.data["entity_b"])
+        key = self._engagement_key(entity_a, entity_b)
+        self.engagements.pop(key, None)
+
+    def _apply_entity_damaged(self, event: "Event") -> None:
+        entity_id = UUID(event.data["entity_id"])
+        if entity_id in self.entities:
+            self.entities[entity_id]["health"] = float(event.data["health_after"])
+
+    def _apply_unit_destroyed(self, event: "Event") -> None:
+        """Clean up engagements when a unit is destroyed by combat."""
+        entity_id = UUID(event.data["entity_id"])
+        # Remove all engagements involving this entity
+        stale = [k for k in self.engagements if entity_id in k]
+        for k in stale:
+            del self.engagements[k]
 
     def get_entity(self, entity_id: UUID) -> Optional[dict[str, Any]]:
         """Get entity data by ID."""

@@ -47,33 +47,48 @@ def create_entity_data(
     max_speed: float = 10.0,
     metadata: dict | None = None,
     simulation_time: float = 0.0,
+    # Phase 3: Combat attributes
+    faction: str = "neutral",
+    health: float | None = None,
+    max_health: float | None = None,
+    firepower: float | None = None,
+    armor: float | None = None,
+    engagement_range: float | None = None,
+    morale: float | None = None,
 ) -> dict[str, Any]:
-    """Create entity data dictionary with all required fields.
+    """Create entity data dictionary with all required fields."""
+    from combat.attributes import merge_combat_attrs
 
-    Args:
-        entity_id: Unique entity identifier
-        entity_type: Entity type (e.g., "infantry", "tank")
-        position: Initial (x, y, z) position
-        max_speed: Maximum speed in m/s
-        metadata: Optional additional metadata
-        simulation_time: Current simulation time
-
-    Returns:
-        Complete entity data dictionary
-    """
+    combat = merge_combat_attrs(
+        entity_type,
+        health=health,
+        max_health=max_health,
+        firepower=firepower,
+        armor=armor,
+        engagement_range=engagement_range,
+        morale=morale,
+    )
     return {
         "entity_id": str(entity_id),
         "type": entity_type,
         "position": position,
         "velocity": (0.0, 0.0, 0.0),
-        "heading": 0.0,  # radians, 0 = north
-        "speed": 0.0,  # current speed m/s
+        "heading": 0.0,
+        "speed": 0.0,
         "max_speed": float(max_speed),
         "created_at": simulation_time,
         "destroyed_at": None,
         "waypoints": [],
         "metadata": metadata or {},
         "last_update_time": simulation_time,
+        # Phase 3: Combat
+        "faction": faction,
+        "health": combat["health"],
+        "max_health": combat["max_health"],
+        "firepower": combat["firepower"],
+        "armor": combat["armor"],
+        "engagement_range": combat["engagement_range"],
+        "morale": combat["morale"],
     }
 
 

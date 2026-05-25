@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Awaitable, Callable, Optional
 from uuid import UUID, uuid4
 
 if TYPE_CHECKING:
+    from combat import CombatSystem
     from spatial import MovementSystem, SpatialIndex
 
 from .checkpoints import Checkpoint, CheckpointStore
@@ -44,6 +45,9 @@ class Simulation:
         self.spatial_index: Optional["SpatialIndex"] = None
         self.movement_system: Optional["MovementSystem"] = None
 
+        # Phase 3: Combat subsystem
+        self.combat_system: Optional["CombatSystem"] = None
+
     async def initialize(self) -> None:
         """Initialize the simulation components."""
         await self.event_store.initialize()
@@ -56,6 +60,12 @@ class Simulation:
 
         self.movement_system = MovementSystem(self)
         await self.movement_system.initialize()
+
+        # Phase 3: Combat subsystem
+        from combat import CombatSystem
+
+        self.combat_system = CombatSystem(self)
+        await self.combat_system.initialize()
 
         self._initialized = True
 
@@ -93,6 +103,10 @@ class Simulation:
         if self.movement_system:
             await self.movement_system.start()
 
+        # Phase 3: Start combat system
+        if self.combat_system:
+            await self.combat_system.start()
+
         await self.emit_event(
             EventType.SIMULATION_STARTED,
             {"simulation_id": str(self.simulation_id), "time_scale": self.clock.time_scale},
@@ -114,6 +128,10 @@ class Simulation:
         # Phase 2b: Stop movement system
         if self.movement_system:
             await self.movement_system.stop()
+
+        # Phase 3: Stop combat system
+        if self.combat_system:
+            await self.combat_system.stop()
 
         await self.clock.stop()
         self.logger.info("simulation.stopped", simulation_id=str(self.simulation_id))
@@ -293,45 +311,60 @@ class Simulation:
         position: tuple[float, float, float] | list[float],
         max_speed: float = 10.0,
         metadata: dict | None = None,
+        # Phase 3: Combat attributes
+        faction: str = "neutral",
+        health: float | None = None,
+        max_health: float | None = None,
+        firepower: float | None = None,
+        armor: float | None = None,
+        engagement_range: float | None = None,
+        morale: float | None = None,
     ) -> UUID:
-        """Create a new entity in the simulation.
-
-        Args:
-            entity_type: Type of entity (e.g., "infantry", "tank")
-            position: Initial (x, y, z) coordinates
-            max_speed: Maximum speed in meters/second
-            metadata: Optional additional metadata
-
-        Returns:
-            UUID of created entity
-        """
+        """Create a new entity in the simulation."""
         entity_id = uuid4()
 
-        # Normalize position to tuple
         if isinstance(position, list):
             position = tuple(position)
         if len(position) == 2:
             position = (position[0], position[1], 0.0)
 
-        await self.emit_event(
-            EventType.ENTITY_CREATED,
-            {
-                "entity_id": str(entity_id),
-                "type": entity_type,
-                "position": list(position),
-                "max_speed": max_speed,
-                "metadata": metadata or {},
-            },
-        )
+        event_data: dict = {
+            "entity_id": str(entity_id),
+            "type": entity_type,
+            "position": list(position),
+            "max_speed": max_speed,
+            "metadata": metadata or {},
+            "faction": faction,
+        }
+        # Only include combat overrides when explicitly provided
+        if health is not None:
+            event_data["health"] = health
+        if max_health is not None:
+            event_data["max_health"] = max_health
+        if firepower is not None:
+            event_data["firepower"] = firepower
+        if armor is not None:
+            event_data["armor"] = armor
+        if engagement_range is not None:
+            event_data["engagement_range"] = engagement_range
+        if morale is not None:
+            event_data["morale"] = morale
+
+        await self.emit_event(EventType.ENTITY_CREATED, event_data)
 
         self.logger.info(
             "entity.created",
             entity_id=str(entity_id),
             entity_type=entity_type,
             position=position,
+            faction=faction,
         )
 
         return entity_id
+
+    def get_engagements(self) -> list[dict]:
+        """Return the list of currently active combat engagements."""
+        return list(self.state.engagements.values())
 
     async def destroy_entity(self, entity_id: UUID) -> None:
         """Destroy an entity.

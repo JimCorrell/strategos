@@ -10,7 +10,8 @@ The architecture is designed so each phase delivers a standalone, runnable capab
 
 - **Phase 1** (Time Engine + Event Sourcing): Complete
 - **Phase 2** (Spatial Layer + Entities + Movement): Complete
-- **Phase 3** (Combat System): Next
+- **Phase 3** (Combat System): Complete
+- **Phase 4** (AI Agents): Next
 
 ## Project Layout
 
@@ -18,7 +19,7 @@ The architecture is designed so each phase delivers a standalone, runnable capab
 core/               # Simulation engine
   config.py         # StrategosConfig (pydantic-settings, STRATEGOS_ env prefix)
   simulation.py     # Simulation orchestrator — entry point for most logic
-  state.py          # WorldState — entity registry
+  state.py          # WorldState — entity registry + engagement tracking
   time.py           # SimulationClock — variable time scaling
   event_store.py    # EventStore — SQLite append-only log via aiosqlite
   events.py         # Event dataclass (frozen), EventType enum, EventValidator
@@ -28,22 +29,33 @@ core/               # Simulation engine
   logging.py        # structlog configuration
 
 spatial/            # Phase 2: Geospatial layer
-  entities.py       # Entity data schema + create_entity_data()
+  entities.py       # Entity data schema + create_entity_data() (includes combat fields)
   index.py          # SpatialIndex — proximity queries
   movement.py       # MovementSystem — position interpolation, velocity
 
+combat/             # Phase 3: Combat system
+  __init__.py       # Exports CombatSystem, UNIT_DEFAULTS, defaults_for_type, calculate_damage
+  attributes.py     # Default stats by unit type (health, firepower, armor, engagement_range, morale)
+  resolution.py     # calculate_damage() — Lanchester-inspired attrition formula
+  system.py         # CombatSystem — async 10Hz loop, engagement detection + resolution
+
 api.py              # FastAPI app — REST + WebSocket, lifespan startup
 static/             # Vanilla JS frontend (no build step)
-  index.html        # 3-column grid layout
+  index.html        # 3-column grid layout with spawn panel + combat panel
   styles.css
   app.js            # ApiClient, WebSocketClient, EntityStore, CanvasRenderer,
-                    # SidebarController, RightPanelController, StrategosApp
+                    # SidebarController, RightPanelController, SpawnController, StrategosApp
 
-tests/              # pytest-asyncio, full coverage of core + spatial
+tests/              # pytest-asyncio, full coverage of core + spatial + combat
+  test_combat_attributes.py   # Unit defaults, override params
+  test_combat_resolution.py   # calculate_damage() math, armor clamping
+  test_combat_system.py       # Engagement detection, bidirectional damage, unit destruction
+  test_phase3.py              # End-to-end: opposing forces → casualties + events
 strategos.py        # One-command launcher (checks deps, starts API, opens browser)
 strategos.sh        # Shell wrapper that activates .venv first
 run_simulation.py   # CLI demo / interactive mode
 demo_phase2b.py     # Phase 2 entity + movement demo
+demo_phase3.py      # Phase 3 combat demo: blue infantry vs red tanks
 Makefile            # make ui / make test / make demo / make run
 ```
 
@@ -58,15 +70,23 @@ python strategos.py          # starts API + opens browser
 # or
 make ui
 
-# Tests
+# Tests — default (fast, excludes slow movement integration tests)
 make test
-# or
-pytest tests/
+# or directly:
+.venv/bin/python -m pytest tests/ -k "not test_movement" -v
+
+# Full test suite including slow real-time movement/replay tests
+make test-all
+
+# Phase 3 combat demo (two opposing squads fight to conclusion)
+python demo_phase3.py
 
 # CLI demo
 make demo
 python run_simulation.py --interactive
 ```
+
+> **Note on test speed**: `test_movement.py` and `test_movement_replay.py` use real-time `asyncio.sleep()` calls and take 30–60s to run. The default `make test` skips them with `-k "not test_movement"`. Run `make test-all` when you need to verify movement behavior or before a release.
 
 Default API: http://localhost:8000  
 WebSocket: ws://localhost:8000/ws/events  
@@ -78,7 +98,9 @@ Swagger docs: http://localhost:8000/docs
 
 **Time travel**: `SimulationClock` drives simulation time independently of wall time. `CheckpointStore` snapshots state periodically so `seek()` can reconstruct any point in <1s.
 
-**Entity lifecycle**: Entities live in `WorldState.entities` (dict keyed by UUID). Created via `simulation.create_entity()`, which emits `entity.created`. Position is interpolated by `MovementSystem` between events.
+**Entity lifecycle**: Entities live in `WorldState.entities` (dict keyed by UUID). Created via `simulation.create_entity()`, which emits `entity.created`. Position is interpolated by `MovementSystem` between events. Destroyed via `simulation.destroy_entity()`, which emits `entity.destroyed`.
+
+**Combat system**: `CombatSystem` runs a 10Hz async loop. Each tick it queries `SpatialIndex` for enemies in range, emits `engagement.started`/`engagement.ended` for state transitions, applies bidirectional Lanchester attrition (`entity.damaged`), and calls `destroy_entity()` when health ≤ 0 (`unit.destroyed`). Active engagements are transient state in `CombatSystem._engagements`; the event log is the durable record.
 
 **Event handlers**: Register via `EventHandlerRegistry.on(event_type, handler)`. Handlers are called by the simulation loop; they should be async and fast.
 
@@ -86,29 +108,40 @@ Swagger docs: http://localhost:8000/docs
 
 **Frontend data flow**:
 - Page load → `GET /entities` → `EntityStore.loadSnapshot` → canvas fit
-- `GET /status` poll (2s) → sidebar update + canvas `simTime` sync
+- `GET /status` + `GET /engagements` poll (2s) → sidebar update + combat panel refresh
 - WebSocket `entity.moved` → `EntityStore` update (no list refresh; canvas RAF reads directly)
 - WebSocket `entity.created/destroyed` → list refresh
+- WebSocket `entity.damaged` → `EntityStore` health update → canvas health bar redraws
+- WebSocket `engagement.started/ended` → engagement list update
 
 ## Key APIs
 
 ```python
-# Start simulation and create an entity
+# Start simulation and create opposing forces
 await simulation.start()
-entity_id = await simulation.create_entity("tank", [0.0, 0.0, 0.0], max_speed=15.0)
-await simulation.set_entity_velocity(entity_id, (5.0, 3.0, 0.0))
+
+# Blue tank at (0,0), red infantry at (100,0) — they will engage automatically
+blue = await simulation.create_entity("tank", [0.0, 0.0, 0.0], faction="blue", max_speed=15.0)
+red  = await simulation.create_entity("infantry", [100.0, 0.0, 0.0], faction="red", max_speed=5.0)
+
+# Set velocity toward each other
+await simulation.set_entity_velocity(blue, (-5.0, 0.0, 0.0))
+await simulation.set_entity_velocity(red,  (5.0, 0.0, 0.0))
+
+# Query active engagements
+engagements = simulation.get_engagements()
 
 # Emit a custom event
 event = await simulation.emit_event("custom.event", {"key": "value"})
 
 # Subscribe to events
-simulation._event_handlers.on("entity.moved", my_async_handler)
+simulation._event_handlers.on("entity.damaged", my_async_handler)
 
 # Seek (rewind/FF)
 await simulation.seek(target_time=42.5)
 ```
 
-## REST Endpoints (Phase 1 + 2)
+## REST Endpoints (Phase 1 + 2 + 3)
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -121,11 +154,38 @@ await simulation.seek(target_time=42.5)
 | POST | /seek | Jump to simulation time |
 | POST | /marker | Create timestamped marker |
 | GET | /events | Query event log |
-| POST | /entities | Create entity |
-| GET | /entities | List all entities (interpolated positions) |
+| POST | /entities | Create entity (with faction + combat attrs) |
+| GET | /entities | List all entities (interpolated positions + health) |
 | GET | /entities/{id} | Get single entity |
 | POST | /entities/{id}/velocity | Set velocity |
+| GET | /engagements | List active engagements |
 | WS | /ws/events | Real-time event stream |
+
+## Combat Attributes (Phase 3)
+
+Default stats by unit type:
+
+| Type | Health | Firepower | Armor | Range |
+|------|--------|-----------|-------|-------|
+| infantry | 100 | 5.0 | 1.0 | 50 |
+| tank | 300 | 25.0 | 7.0 | 200 |
+| aircraft | 150 | 20.0 | 2.0 | 300 |
+
+Attrition formula: `damage = firepower × (1 − min(armor/10, 0.9)) × dt`
+
+Factions: `"blue"`, `"red"`, `"neutral"`. Only entities of different non-neutral factions engage.
+
+## Event Types
+
+| Event | Key Data |
+|-------|----------|
+| `entity.created` | id, type, position, faction, health, firepower, armor, engagement_range, morale |
+| `entity.moved` | id, position, velocity, heading |
+| `entity.destroyed` | id |
+| `engagement.started` | entity_a, entity_b, started_at |
+| `engagement.ended` | entity_a, entity_b |
+| `entity.damaged` | entity_id, damage, new_health, attacker_id |
+| `unit.destroyed` | entity_id, killer_id |
 
 ## Development Notes
 
@@ -137,13 +197,14 @@ await simulation.seek(target_time=42.5)
 - Tests use `tmp_path` fixtures for isolated SQLite DBs; no mocking of the database
 - Frontend is vanilla JS, no build step, no framework
 
-## Phase 3 Preview (Combat System)
+## Phase 4 Preview (AI Agents)
 
 Next phase adds:
-- `CombatStrength` attributes on entities (firepower, armor, range, morale)
-- Engagement detection (range + line of sight)
-- Attrition resolution (Lanchester equations)
-- New event types: `engagement.started`, `shots.fired`, `unit.destroyed`
-- Combat visualization in the right panel (currently a grayed-out placeholder in the UI)
+- `Agent` base class with perception-decision-action loop
+- Information filtering (fog of war, limited sensor range)
+- Goal and objective system
+- Decision engine (rule-based or LLM-based)
+- Agent action events (orders issued, objectives changed)
+- Agents issue movement and engagement orders to units autonomously
 
 See `docs/Roadmap.md` for full phase definitions.

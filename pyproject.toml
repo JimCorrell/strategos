@@ -50,7 +50,7 @@ Repository = "https://github.com/JimCorrell/strategos"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["core*", "api*", "agents*", "entities*", "systems*", "client*"]
+include = ["core*", "combat*", "api*", "agents*", "entities*", "systems*", "client*"]
 
 [tool.black]
 line-length = 100

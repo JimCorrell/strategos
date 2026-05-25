@@ -101,6 +101,14 @@ class EntityResponse(BaseModel):
     created_at: float = 0.0
     destroyed_at: Optional[float] = None
     last_update_time: float = 0.0
+    # Phase 3: Combat attributes
+    faction: str = "neutral"
+    health: float = 100.0
+    max_health: float = 100.0
+    firepower: float = 0.0
+    armor: float = 0.0
+    engagement_range: float = 0.0
+    morale: float = 75.0
 
 
 class EntityListResponse(BaseModel):
@@ -117,6 +125,22 @@ class CreateEntityRequest(BaseModel):
     position: list[float] = [0.0, 0.0, 0.0]
     max_speed: float = 10.0
     metadata: Optional[dict] = None
+    # Phase 3: Combat attributes (all optional — defaults come from unit type)
+    faction: str = "neutral"
+    health: Optional[float] = None
+    max_health: Optional[float] = None
+    firepower: Optional[float] = None
+    armor: Optional[float] = None
+    engagement_range: Optional[float] = None
+    morale: Optional[float] = None
+
+
+class EngagementResponse(BaseModel):
+    """Active combat engagement between two entities."""
+
+    entity_a: str
+    entity_b: str
+    started_at: float
 
 
 class SetVelocityRequest(BaseModel):
@@ -289,17 +313,17 @@ async def create_entity(request: CreateEntityRequest):
         position=request.position,
         max_speed=request.max_speed,
         metadata=request.metadata,
+        faction=request.faction,
+        health=request.health,
+        max_health=request.max_health,
+        firepower=request.firepower,
+        armor=request.armor,
+        engagement_range=request.engagement_range,
+        morale=request.morale,
     )
 
     entity_data = simulation.get_entity(entity_id) or {}
-    return EntityResponse(
-        entity_id=str(entity_id),
-        type=entity_data.get("type", request.type),
-        position=list(entity_data.get("position", request.position)),
-        velocity=[0.0, 0.0, 0.0],
-        max_speed=request.max_speed,
-        metadata=request.metadata or {},
-    )
+    return _entity_response(str(entity_id), entity_data)
 
 
 @app.post("/entities/{entity_id}/velocity")
@@ -327,40 +351,50 @@ async def set_entity_velocity(entity_id: str, request: SetVelocityRequest):
     return {"entity_id": entity_id, "velocity": list(velocity)}
 
 
+def _entity_response(entity_id_str: str, entity_data: dict) -> EntityResponse:
+    """Build EntityResponse from entity data dict, with interpolated position."""
+    position = list(entity_data.get("position", [0.0, 0.0, 0.0]))
+    if simulation and simulation.movement_system:
+        try:
+            uid = UUID(entity_id_str)
+            interp = simulation.movement_system.get_entity_position(uid)
+            if interp is not None:
+                position = list(interp)
+        except Exception:
+            pass
+
+    return EntityResponse(
+        entity_id=entity_id_str,
+        type=entity_data.get("type", "unknown"),
+        position=position,
+        velocity=list(entity_data.get("velocity", [0.0, 0.0, 0.0])),
+        heading=entity_data.get("heading", 0.0),
+        speed=entity_data.get("speed", 0.0),
+        max_speed=entity_data.get("max_speed", 0.0),
+        metadata=entity_data.get("metadata", {}),
+        created_at=entity_data.get("created_at", 0.0),
+        destroyed_at=entity_data.get("destroyed_at"),
+        last_update_time=entity_data.get("last_update_time", 0.0),
+        faction=entity_data.get("faction", "neutral"),
+        health=entity_data.get("health", 100.0),
+        max_health=entity_data.get("max_health", 100.0),
+        firepower=entity_data.get("firepower", 0.0),
+        armor=entity_data.get("armor", 0.0),
+        engagement_range=entity_data.get("engagement_range", 0.0),
+        morale=entity_data.get("morale", 75.0),
+    )
+
+
 @app.get("/entities", response_model=EntityListResponse)
 async def get_entities():
     """Get snapshot of all living entities with interpolated positions."""
     if not simulation:
         raise HTTPException(status_code=503, detail="Simulation not initialized")
 
-    entities = []
-    for entity_id, entity_data in simulation.state.entities.items():
-        entity_id_str = str(entity_id)
-
-        position = list(entity_data.get("position", [0.0, 0.0, 0.0]))
-        if simulation.movement_system:
-            try:
-                uid = entity_id if isinstance(entity_id, UUID) else UUID(entity_id_str)
-                interp = simulation.movement_system.get_entity_position(uid)
-                if interp is not None:
-                    position = list(interp)
-            except Exception:
-                pass
-
-        entities.append(EntityResponse(
-            entity_id=entity_id_str,
-            type=entity_data.get("type", "unknown"),
-            position=position,
-            velocity=list(entity_data.get("velocity", [0.0, 0.0, 0.0])),
-            heading=entity_data.get("heading", 0.0),
-            speed=entity_data.get("speed", 0.0),
-            max_speed=entity_data.get("max_speed", 0.0),
-            metadata=entity_data.get("metadata", {}),
-            created_at=entity_data.get("created_at", 0.0),
-            destroyed_at=entity_data.get("destroyed_at"),
-            last_update_time=entity_data.get("last_update_time", 0.0),
-        ))
-
+    entities = [
+        _entity_response(str(eid), edata)
+        for eid, edata in simulation.state.entities.items()
+    ]
     return EntityListResponse(count=len(entities), entities=entities)
 
 
@@ -379,28 +413,15 @@ async def get_entity(entity_id: str):
     if entity_data is None:
         raise HTTPException(status_code=404, detail="Entity not found")
 
-    position = list(entity_data.get("position", [0.0, 0.0, 0.0]))
-    if simulation.movement_system:
-        try:
-            interp = simulation.movement_system.get_entity_position(uid)
-            if interp is not None:
-                position = list(interp)
-        except Exception:
-            pass
+    return _entity_response(entity_id, entity_data)
 
-    return EntityResponse(
-        entity_id=entity_id,
-        type=entity_data.get("type", "unknown"),
-        position=position,
-        velocity=list(entity_data.get("velocity", [0.0, 0.0, 0.0])),
-        heading=entity_data.get("heading", 0.0),
-        speed=entity_data.get("speed", 0.0),
-        max_speed=entity_data.get("max_speed", 0.0),
-        metadata=entity_data.get("metadata", {}),
-        created_at=entity_data.get("created_at", 0.0),
-        destroyed_at=entity_data.get("destroyed_at"),
-        last_update_time=entity_data.get("last_update_time", 0.0),
-    )
+
+@app.get("/engagements", response_model=list[EngagementResponse])
+async def get_engagements():
+    """Get all currently active combat engagements."""
+    if not simulation:
+        raise HTTPException(status_code=503, detail="Simulation not initialized")
+    return [EngagementResponse(**e) for e in simulation.get_engagements()]
 
 
 # WebSocket endpoint for real-time event streaming

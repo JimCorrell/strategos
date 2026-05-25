@@ -48,13 +48,17 @@ run: install
 ui: install
 	@$(PYTHON) strategos.py
 
-# Run tests
+# Run tests (fast — excludes slow integration tests with real-time sleeps)
 test: install
+	@$(PYTHON) -m pytest tests/ -k "not test_movement" -v
+
+# Run full test suite including slow movement/replay integration tests
+test-all: install
 	@$(PYTHON) -m pytest tests/ -v
 
 # Run tests with coverage
 test-cov: install
-	@$(PYTHON) -m pytest --cov=core tests/
+	@$(PYTHON) -m pytest --cov=core tests/ -k "not test_movement"
 
 # Run CLI demo
 demo: install

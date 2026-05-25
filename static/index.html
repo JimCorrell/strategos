@@ -69,6 +69,44 @@
       <ul id="marker-list"></ul>
     </div>
 
+    <!-- Spawn Entity -->
+    <div class="sidebar-section">
+      <div class="section-label">Spawn Entity</div>
+
+      <div class="spawn-row">
+        <label class="spawn-label">Type</label>
+        <select id="spawn-type" class="spawn-select">
+          <option value="infantry">Infantry</option>
+          <option value="tank">Tank</option>
+          <option value="aircraft">Aircraft</option>
+        </select>
+      </div>
+
+      <div class="spawn-row">
+        <label class="spawn-label">Faction</label>
+        <select id="spawn-faction" class="spawn-select">
+          <option value="blue">Blue</option>
+          <option value="red">Red</option>
+          <option value="neutral">Neutral</option>
+        </select>
+      </div>
+
+      <div class="spawn-row">
+        <label class="spawn-label">X</label>
+        <input type="number" id="spawn-x" class="spawn-coord" value="0" step="10">
+      </div>
+
+      <div class="spawn-row">
+        <label class="spawn-label">Y</label>
+        <input type="number" id="spawn-y" class="spawn-coord" value="0" step="10">
+      </div>
+
+      <div class="spawn-hint" id="spawn-hint">Click map to set position</div>
+
+      <button id="btn-spawn" class="btn btn-primary btn-sm spawn-btn">Spawn</button>
+      <div id="spawn-error" class="spawn-error"></div>
+    </div>
+
   </aside>
 
   <!-- ── MAP AREA ──────────────────────────────── -->
@@ -105,17 +143,12 @@
       </div>
     </div>
 
-    <div id="section-combat" class="right-section disabled-section">
+    <div id="section-combat" class="right-section">
       <div class="right-section-header">
         Combat
-        <span class="phase-tag">Phase 3</span>
+        <span id="engagement-count" class="engagement-count">0 active</span>
       </div>
-      <div class="combat-placeholder">
-        Engagement detection<br>
-        Attrition model<br>
-        Unit degradation<br>
-        Combat events
-      </div>
+      <div id="engagement-list"></div>
     </div>
 
   </aside>

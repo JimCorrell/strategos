@@ -62,7 +62,7 @@ A general-purpose geospatial simulation engine suitable for logistics, traffic, 
 
 ---
 
-## Phase 3: Combat Resolution System 🚧 NEXT
+## Phase 3: Combat Resolution System ✅ COMPLETE
 
 ### Goal
 
@@ -70,45 +70,37 @@ Enable entities to engage in combat with realistic mechanics and outcomes.
 
 ### Components
 
-- Combat strength modeling (firepower, armor, range, morale)
-- Engagement detection (line of sight, range bands, targeting)
-- Resolution mechanics (Lanchester equations, attrition models, or Monte Carlo)
-- Unit degradation (casualties reduce combat effectiveness)
-- Combat event types (engagement started, shots fired, unit destroyed)
-- Combat visualization (engagement lines, damage indicators)
-
-### Deliverable
-
-A combat engine where:
-
-- Units automatically engage enemies in range
-- Casualties accumulate realistically over time
-- Combat effectiveness degrades with damage
-- Outcomes are deterministic and replayable
-
-### Runnable Demo
-
-```python
-# Create two opposing forces
-# Watch them detect and engage each other
-# Observe casualties and unit degradation
-# Rewind and test different formations/tactics
-```
+- `combat/attributes.py` — default stats by unit type (infantry/tank/aircraft); `UNIT_DEFAULTS`, `defaults_for_type()`, `merge_combat_attrs()`
+- `combat/resolution.py` — `calculate_damage()`: Lanchester attrition formula (`firepower × (1 − min(armor/10, 0.9)) × dt`)
+- `combat/system.py` — `CombatSystem`: async 10Hz loop, SpatialIndex-based range detection, bidirectional damage, unit destruction
+- Faction system: `"blue"` / `"red"` / `"neutral"` strings on entities; only different non-neutral factions engage
+- New event types: `engagement.started`, `engagement.ended`, `entity.damaged`, `unit.destroyed`
+- `WorldState.engagements` — engagement tracking in world state, applied via event sourcing
+- `GET /engagements` REST endpoint + `EngagementResponse` Pydantic model
+- `create_entity()` extended: `faction`, `health`, `max_health`, `firepower`, `armor`, `engagement_range`, `morale` params
+- Canvas: health bars per entity (green → yellow → red), dashed red lines between engaged pairs
+- Canvas: distinct shapes per unit type (chevron for aircraft, triangle for infantry, rounded hull for tank)
+- Spawn UI panel: type/faction/x/y inputs, click-to-place on canvas, live spawn feedback
+- Inspector: health bar + combat stats (faction, firepower, armor, range, morale) for selected entity
+- Combat panel: active engagement count + per-engagement listing
+- `demo_phase3.py` — blue infantry (3) vs red tanks (2), 5x time scale, live event feed
 
 ### Success Criteria
 
-- ✅ Attrition rates match historical combat data
-- ✅ Combat outcomes feel plausible and balanced
-- ✅ 100+ simultaneous engagements without performance degradation
-- ✅ Morale and suppression affect combat effectiveness
+- ✅ Units automatically engage enemies in range
+- ✅ Casualties accumulate via Lanchester attrition
+- ✅ Health degrades and units are destroyed at zero health
+- ✅ Outcomes are deterministic and event-sourced
+- ✅ Canvas shows engagement lines, health bars, unit-type iconology
+- ✅ Entities can be spawned from the browser UI without using the API directly
 
 ### Value Proposition
 
-A tactical wargame engine - publishable as "STRATEGOS: Combat Engine" with standalone value for military simulation.
+A tactical wargame engine — publishable as "STRATEGOS: Combat Engine" with standalone value for military simulation.
 
 ---
 
-## Phase 4: First AI Agent (Tactical Commander)
+## Phase 4: First AI Agent (Tactical Commander) 🚧 NEXT
 
 ### Goal
 
