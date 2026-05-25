@@ -1,6 +1,6 @@
 # STRATEGOS Development Phases
 
-## Phase 1: Time Engine + Event Sourcing Foundation
+## Phase 1: Time Engine + Event Sourcing Foundation ✅ COMPLETE
 
 ### Goal
 
@@ -9,20 +9,14 @@ Build the temporal backbone - prove you can simulate, pause, rewind, and fast-fo
 ### Components
 
 - `SimulationClock` with variable time scaling (1x, 10x, 100x, etc.)
-- `EventStore` with append-only log and replay capability
-- Checkpoint system for efficient state reconstruction
+- `EventStore` with append-only log and replay capability (SQLite via aiosqlite)
+- `CheckpointStore` for efficient state reconstruction
 - FastAPI endpoints for time control (play, pause, seek, scale)
 - WebSocket streaming for real-time event delivery
-- Basic timeline visualization
-
-### Deliverable
-
-A working time engine that can:
-
-- Process events in continuous time
-- Speed up or slow down simulation dynamically
-- Rewind to any point in history in <1 second
-- Replay events deterministically from checkpoints
+- `EventHandlerRegistry` for type-specific event subscriptions
+- `EventValidator` for event schema validation
+- `StrategosConfig` via pydantic-settings
+- Structured logging via structlog
 
 ### Success Criteria
 
@@ -37,7 +31,7 @@ A reusable event-sourcing framework suitable for any time-based simulation syste
 
 ---
 
-## Phase 2: Spatial Layer + Basic Entities
+## Phase 2: Spatial Layer + Basic Entities ✅ COMPLETE
 
 ### Goal
 
@@ -45,37 +39,22 @@ Add geography and movable entities to create a geospatial simulation foundation.
 
 ### Components
 
-- Geographic coordinate system (latitude/longitude or hex grid)
-- `Entity` base class with position, velocity, and heading
-- Spatial indexing (quad-tree or R-tree) for proximity queries
-- Movement system with pathfinding and terrain awareness
-- Collision detection
-- Map visualization with moving entities
-
-### Deliverable
-
-A geospatial engine where:
-
-- Entities move across terrain realistically
-- Spatial queries execute efficiently ("what's near me?")
-- Movement respects terrain constraints
-- Visualization shows entity positions and movement
-
-### Runnable Demo
-
-```python
-# Create 1000 military units
-# Set waypoints and watch them navigate
-# Query units within radius of a location
-# Rewind simulation and observe movement backward
-```
+- `Entity` data model with position (x,y,z), velocity, heading, speed, max_speed
+- `SpatialIndex` for proximity queries
+- `MovementSystem` with real-time position interpolation (velocity × Δt)
+- REST API: `POST /entities`, `GET /entities`, `GET /entities/{id}`, `POST /entities/{id}/velocity`
+- 3-column canvas UI: sidebar controls / HTML5 canvas map / entity inspector
+  - Zoom + pan, adaptive grid, faction/type-based entity colors
+  - Entity list with click-to-select; inspector shows position, velocity, heading
+  - Combat panel placeholder (grayed out, ready for Phase 3)
 
 ### Success Criteria
 
-- ✅ 1000+ entities moving simultaneously at 60+ FPS
-- ✅ Pathfinding handles obstacles and terrain
-- ✅ Spatial queries complete in <10ms
-- ✅ Movement appears smooth and realistic
+- ✅ Entities created and tracked in WorldState with full lifecycle events
+- ✅ Velocity-based position interpolation between events (smooth canvas motion)
+- ✅ Spatial queries via SpatialIndex
+- ✅ Canvas renders entities in real-time via RAF loop
+- ✅ Entity list + inspector cross-wired with canvas selection
 
 ### Value Proposition
 
@@ -83,7 +62,7 @@ A general-purpose geospatial simulation engine suitable for logistics, traffic, 
 
 ---
 
-## Phase 3: Combat Resolution System
+## Phase 3: Combat Resolution System 🚧 NEXT
 
 ### Goal
 

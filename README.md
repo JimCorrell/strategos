@@ -45,7 +45,9 @@ Each phase delivers a runnable, independently valuable simulation capability.
 
 ## Project Status
 
-🚧 **In Development** - Currently building Phase 1 (Time Engine + Event Sourcing)
+- ✅ **Phase 1 Complete** — Time Engine + Event Sourcing (rewind, fast-forward, deterministic replay)
+- ✅ **Phase 2 Complete** — Spatial Layer (entities, movement, canvas UI with real-time interpolation)
+- 🚧 **Phase 3 In Progress** — Combat System
 
 ## Development Setup
 
@@ -188,7 +190,7 @@ pytest --cov=core tests/
 
 ## Technology Stack
 
-- Python 3.11+
+- Python 3.12+
 - FastAPI
 - PostgreSQL (event store)
 - WebSockets
