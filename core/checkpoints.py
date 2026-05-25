@@ -9,6 +9,8 @@ from .logging import get_logger
 
 logger = get_logger(__name__)
 
+CHECKPOINT_SCHEMA_VERSION = 1
+
 
 @dataclass
 class Checkpoint:
@@ -18,10 +20,15 @@ class Checkpoint:
     state_data: bytes  # Pickled state
     checkpoint_id: str = field(default="")
     metadata: dict = field(default_factory=dict)
+    schema_version: int = field(default=CHECKPOINT_SCHEMA_VERSION)
 
     def deserialize_state(self) -> Any:
         """Restore state object from bytes."""
         return pickle.loads(self.state_data)
+
+    def is_compatible(self, current_version: int = CHECKPOINT_SCHEMA_VERSION) -> bool:
+        """Return True if this checkpoint can be loaded by the current schema version."""
+        return self.schema_version <= current_version
 
     @classmethod
     def create(
@@ -33,6 +40,7 @@ class Checkpoint:
             "checkpoint.created",
             simulation_time=simulation_time,
             checkpoint_id=checkpoint_id,
+            schema_version=CHECKPOINT_SCHEMA_VERSION,
             state_size_bytes=len(pickle.dumps(state)),
         )
         return cls(
@@ -40,6 +48,7 @@ class Checkpoint:
             state_data=pickle.dumps(state),
             checkpoint_id=checkpoint_id,
             metadata=metadata or {},
+            schema_version=CHECKPOINT_SCHEMA_VERSION,
         )
 
 
@@ -123,6 +132,15 @@ class CheckpointStore:
 
             with open(filename, "rb") as f:
                 checkpoint = pickle.load(f)
+
+            if not checkpoint.is_compatible():
+                self.logger.warning(
+                    "checkpoint.incompatible",
+                    checkpoint_time=checkpoint.simulation_time,
+                    checkpoint_schema_version=getattr(checkpoint, "schema_version", 0),
+                    current_schema_version=CHECKPOINT_SCHEMA_VERSION,
+                )
+                return None
 
             self.logger.debug(
                 "checkpoint.retrieved",

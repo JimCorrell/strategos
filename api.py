@@ -35,8 +35,8 @@ async def lifespan(app: FastAPI):
 
     config = StrategosConfig()
     simulation = Simulation(
-        db_path="strategos.db",
-        checkpoint_dir="checkpoints",
+        db_path=config.db_path,
+        checkpoint_dir=config.checkpoint_dir,
         checkpoint_interval=config.checkpoint_interval,
         time_scale=config.default_time_scale,
     )
@@ -83,6 +83,46 @@ class SimulationStatus(BaseModel):
     is_running: bool
     clock_state: str
     event_count: int
+    entity_count: int = 0
+    formatted_time: Optional[str] = None
+
+
+class EntityResponse(BaseModel):
+    """Single entity response."""
+
+    entity_id: str
+    type: str
+    position: list[float]
+    velocity: list[float] = [0.0, 0.0, 0.0]
+    heading: float = 0.0
+    speed: float = 0.0
+    max_speed: float = 0.0
+    metadata: dict = {}
+    created_at: float = 0.0
+    destroyed_at: Optional[float] = None
+    last_update_time: float = 0.0
+
+
+class EntityListResponse(BaseModel):
+    """List of entities response."""
+
+    count: int
+    entities: list[EntityResponse]
+
+
+class CreateEntityRequest(BaseModel):
+    """Request to create an entity."""
+
+    type: str
+    position: list[float] = [0.0, 0.0, 0.0]
+    max_speed: float = 10.0
+    metadata: Optional[dict] = None
+
+
+class SetVelocityRequest(BaseModel):
+    """Request to set entity velocity."""
+
+    velocity: list[float]
 
 
 class TimeScaleRequest(BaseModel):
@@ -118,7 +158,7 @@ async def api_info():
         "name": "STRATEGOS",
         "version": "0.1.0",
         "status": "running",
-        "phase": "1 - Time Engine + Event Sourcing",
+        "phase": "2 - Spatial Layer + Movement",
     }
 
 
@@ -234,6 +274,133 @@ async def get_events(
             for e in events
         ],
     }
+
+
+@app.post("/entities", response_model=EntityResponse, status_code=201)
+async def create_entity(request: CreateEntityRequest):
+    """Create a new entity in the simulation."""
+    if not simulation:
+        raise HTTPException(status_code=503, detail="Simulation not initialized")
+    if not simulation._running:
+        raise HTTPException(status_code=400, detail="Simulation must be running to create entities")
+
+    entity_id = await simulation.create_entity(
+        entity_type=request.type,
+        position=request.position,
+        max_speed=request.max_speed,
+        metadata=request.metadata,
+    )
+
+    entity_data = simulation.get_entity(entity_id) or {}
+    return EntityResponse(
+        entity_id=str(entity_id),
+        type=entity_data.get("type", request.type),
+        position=list(entity_data.get("position", request.position)),
+        velocity=[0.0, 0.0, 0.0],
+        max_speed=request.max_speed,
+        metadata=request.metadata or {},
+    )
+
+
+@app.post("/entities/{entity_id}/velocity")
+async def set_entity_velocity(entity_id: str, request: SetVelocityRequest):
+    """Set velocity for a moving entity."""
+    if not simulation:
+        raise HTTPException(status_code=503, detail="Simulation not initialized")
+
+    try:
+        uid = UUID(entity_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid entity_id — must be a UUID")
+
+    if simulation.get_entity(uid) is None:
+        raise HTTPException(status_code=404, detail="Entity not found")
+
+    if len(request.velocity) == 2:
+        velocity = (request.velocity[0], request.velocity[1], 0.0)
+    elif len(request.velocity) == 3:
+        velocity = tuple(request.velocity)
+    else:
+        raise HTTPException(status_code=400, detail="velocity must have 2 or 3 components")
+
+    await simulation.set_entity_velocity(uid, velocity)
+    return {"entity_id": entity_id, "velocity": list(velocity)}
+
+
+@app.get("/entities", response_model=EntityListResponse)
+async def get_entities():
+    """Get snapshot of all living entities with interpolated positions."""
+    if not simulation:
+        raise HTTPException(status_code=503, detail="Simulation not initialized")
+
+    entities = []
+    for entity_id, entity_data in simulation.state.entities.items():
+        entity_id_str = str(entity_id)
+
+        position = list(entity_data.get("position", [0.0, 0.0, 0.0]))
+        if simulation.movement_system:
+            try:
+                uid = entity_id if isinstance(entity_id, UUID) else UUID(entity_id_str)
+                interp = simulation.movement_system.get_entity_position(uid)
+                if interp is not None:
+                    position = list(interp)
+            except Exception:
+                pass
+
+        entities.append(EntityResponse(
+            entity_id=entity_id_str,
+            type=entity_data.get("type", "unknown"),
+            position=position,
+            velocity=list(entity_data.get("velocity", [0.0, 0.0, 0.0])),
+            heading=entity_data.get("heading", 0.0),
+            speed=entity_data.get("speed", 0.0),
+            max_speed=entity_data.get("max_speed", 0.0),
+            metadata=entity_data.get("metadata", {}),
+            created_at=entity_data.get("created_at", 0.0),
+            destroyed_at=entity_data.get("destroyed_at"),
+            last_update_time=entity_data.get("last_update_time", 0.0),
+        ))
+
+    return EntityListResponse(count=len(entities), entities=entities)
+
+
+@app.get("/entities/{entity_id}", response_model=EntityResponse)
+async def get_entity(entity_id: str):
+    """Get a single entity by ID."""
+    if not simulation:
+        raise HTTPException(status_code=503, detail="Simulation not initialized")
+
+    try:
+        uid = UUID(entity_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid entity_id — must be a UUID")
+
+    entity_data = simulation.get_entity(uid)
+    if entity_data is None:
+        raise HTTPException(status_code=404, detail="Entity not found")
+
+    position = list(entity_data.get("position", [0.0, 0.0, 0.0]))
+    if simulation.movement_system:
+        try:
+            interp = simulation.movement_system.get_entity_position(uid)
+            if interp is not None:
+                position = list(interp)
+        except Exception:
+            pass
+
+    return EntityResponse(
+        entity_id=entity_id,
+        type=entity_data.get("type", "unknown"),
+        position=position,
+        velocity=list(entity_data.get("velocity", [0.0, 0.0, 0.0])),
+        heading=entity_data.get("heading", 0.0),
+        speed=entity_data.get("speed", 0.0),
+        max_speed=entity_data.get("max_speed", 0.0),
+        metadata=entity_data.get("metadata", {}),
+        created_at=entity_data.get("created_at", 0.0),
+        destroyed_at=entity_data.get("destroyed_at"),
+        last_update_time=entity_data.get("last_update_time", 0.0),
+    )
 
 
 # WebSocket endpoint for real-time event streaming

@@ -11,9 +11,11 @@ class StrategosConfig(BaseSettings):
     database_url: str = "postgresql://strategos:strategos@localhost:5432/strategos"
     database_pool_min_size: int = 10
     database_pool_max_size: int = 20
+    db_path: str = "strategos.db"
 
     # Checkpointing
     checkpoint_interval: int = 1000  # Events between checkpoints
+    checkpoint_dir: str = "checkpoints"
 
     # Time
     default_time_scale: float = 1.0

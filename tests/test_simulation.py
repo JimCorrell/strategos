@@ -3,7 +3,9 @@
 import asyncio
 
 import pytest
+import structlog.testing
 
+from core.events import EventType
 from core.time import ClockState
 
 
@@ -118,6 +120,45 @@ async def test_shutdown(simulation):
     assert simulation._running is False
     # EventStore should be closed
     assert simulation.event_store._db is None
+
+
+@pytest.mark.asyncio
+async def test_simulation_start_logs_emitted(simulation):
+    """Verify simulation.started log is emitted on start."""
+    with structlog.testing.capture_logs() as logs:
+        await simulation.start()
+        await simulation.stop()
+
+    events = [l["event"] for l in logs]
+    assert "simulation.started" in events
+
+
+@pytest.mark.asyncio
+async def test_emit_event_logs_emitted(simulation):
+    """Verify event.emitting log is emitted when creating a marker."""
+    await simulation.start()
+    with structlog.testing.capture_logs() as logs:
+        await simulation.create_marker("test_marker")
+
+    events = [l["event"] for l in logs]
+    assert "event.emitting" in events
+
+    await simulation.stop()
+
+
+@pytest.mark.asyncio
+async def test_seek_logs_emitted(simulation):
+    """Verify seek start and completion are logged."""
+    await simulation.start()
+    await simulation.create_marker("before_seek")
+    await simulation.pause()
+
+    with structlog.testing.capture_logs() as logs:
+        await simulation.seek(0.0)
+
+    events = [l["event"] for l in logs]
+    assert "simulation.seek.started" in events
+    assert "simulation.seek.completed" in events
 
 
 @pytest.mark.asyncio

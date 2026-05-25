@@ -2,6 +2,7 @@
 
 import pytest
 
+from core.checkpoints import CHECKPOINT_SCHEMA_VERSION, Checkpoint
 from core.state import SimulationState
 
 
@@ -127,6 +128,38 @@ async def test_should_create_checkpoint(checkpoint_manager, simulation_state):
     # Should create after interval
     assert checkpoint_manager.should_create_checkpoint(1.0) is True
     assert checkpoint_manager.should_create_checkpoint(2.0) is True
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_schema_version(checkpoint_manager, simulation_state):
+    """Test that checkpoints carry the current schema version."""
+    checkpoint = await checkpoint_manager.create_checkpoint(
+        simulation_time=1.0, state=simulation_state
+    )
+
+    assert checkpoint.schema_version == CHECKPOINT_SCHEMA_VERSION
+    assert checkpoint.is_compatible() is True
+
+
+@pytest.mark.asyncio
+async def test_incompatible_checkpoint_rejected(checkpoint_manager, simulation_state, tmp_path):
+    """Test that a checkpoint with a future schema version is rejected on load."""
+    import pickle
+    from pathlib import Path
+
+    future_checkpoint = Checkpoint(
+        simulation_time=5.0,
+        state_data=pickle.dumps(simulation_state),
+        checkpoint_id="checkpoint_5.000000",
+        schema_version=CHECKPOINT_SCHEMA_VERSION + 999,
+    )
+
+    filename = Path(checkpoint_manager.checkpoint_dir) / "checkpoint_5.000000.pkl"
+    with open(filename, "wb") as f:
+        pickle.dump(future_checkpoint, f)
+
+    result = await checkpoint_manager.get_nearest_before(10.0)
+    assert result is None, "Checkpoint from a future schema version should be rejected"
 
 
 @pytest.mark.asyncio
